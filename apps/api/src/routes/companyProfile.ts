@@ -32,7 +32,33 @@ const companyProfileSchema = z.object({
   documentCompanyMode: z.enum(["CURRENT", "APPROVAL_TIME"]).default("CURRENT")
 });
 
-const previewCompany = {
+type PreviewCompanyProfile = {
+  id: string;
+  companyName: string;
+  companyNameArabic?: string;
+  registrationNumber?: string;
+  vatNumber?: string;
+  address?: string;
+  city?: string;
+  country?: string;
+  phone?: string;
+  fax?: string;
+  email?: string;
+  website?: string;
+  gosiNumber?: string;
+  qiwaReference?: string;
+  bankDetails?: string;
+  authorizedSignatory?: string;
+  companyStampDataUrl?: string;
+  letterheadSettings?: Record<string, unknown>;
+  logoDataUrl?: string;
+  logoVersion: number;
+  documentCompanyMode: "CURRENT" | "APPROVAL_TIME";
+  updatedBy?: string;
+  updatedAt?: string;
+};
+
+const previewCompany: PreviewCompanyProfile = {
   id: "default",
   companyName: "Demo Company",
   companyNameArabic: "شركة تجريبية",
@@ -56,10 +82,12 @@ const previewCompany = {
   documentCompanyMode: "CURRENT"
 };
 
+let previewCompanyState: PreviewCompanyProfile = { ...previewCompany };
+
 router.use(requireAuth);
 
 router.get("/", async (_req, res) => {
-  if (env.HRMS_PREVIEW_MODE) return res.json(previewCompany);
+  if (env.HRMS_PREVIEW_MODE) return res.json(previewCompanyState);
   const profile = await prisma.companyProfile.findUnique({ where: { id: "default" } });
   res.json(profile ?? { ...previewCompany, companyName: "Saudi HRMS Company" });
 });
@@ -68,7 +96,17 @@ router.put("/", requireRoles(Role.SUPER_ADMIN, Role.ADMIN, Role.HR_MANAGER), asy
   try {
     const body = companyProfileSchema.parse(req.body);
     if (env.HRMS_PREVIEW_MODE) {
-      return res.json({ ...previewCompany, ...body, logoDataUrl: body.deleteLogo ? "" : body.logoDataUrl ?? previewCompany.logoDataUrl, logoVersion: previewCompany.logoVersion + 1, updatedBy: req.user?.id, updatedAt: new Date().toISOString() });
+      const { deleteLogo, ...profileBody } = body;
+      const nextLogoDataUrl = body.deleteLogo ? "" : body.logoDataUrl ?? previewCompanyState.logoDataUrl;
+      previewCompanyState = {
+        ...previewCompanyState,
+        ...profileBody,
+        logoDataUrl: nextLogoDataUrl,
+        logoVersion: body.logoDataUrl || deleteLogo ? previewCompanyState.logoVersion + 1 : previewCompanyState.logoVersion,
+        updatedBy: req.user?.id,
+        updatedAt: new Date().toISOString()
+      };
+      return res.json(previewCompanyState);
     }
     const previous = await prisma.companyProfile.findUnique({ where: { id: "default" } });
     const { deleteLogo, ...profileBody } = body;
