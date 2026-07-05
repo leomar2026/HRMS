@@ -8,6 +8,7 @@ import { AppError } from "../middleware/error.js";
 import { audit } from "../utils/audit.js";
 import { renderPayslipPdf, type PayslipComponent } from "../utils/payslipRenderer.js";
 import { getCurrentCompanyProfile, payslipCompanyFromProfile } from "../utils/companyProfile.js";
+import { leaveStages, notifyLeaveAction } from "../utils/leaveWorkflow.js";
 
 const router = Router();
 
@@ -151,7 +152,7 @@ router.post("/me/leaves", async (req, res, next) => {
     if (body.endDate < body.startDate) throw new AppError(400, "End date must be on or after start date");
 
     const days = daysBetween(body.startDate, body.endDate);
-    const employee = await prisma.employee.findUnique({ where: { id: employeeId }, include: { manager: true } });
+    const employee = await prisma.employee.findUnique({ where: { id: employeeId }, include: { manager: true, department: true } });
     if (!employee) throw new AppError(404, "Employee profile not found");
     if (body.type !== LeaveType.UNPAID && employee.leaveBalance < days) throw new AppError(400, "Insufficient leave balance");
 
@@ -181,7 +182,7 @@ router.post("/me/leaves", async (req, res, next) => {
           emergencyContact: body.emergencyContact,
           attachmentName: body.attachmentName,
           availableBalanceAtRequest: employee.leaveBalance,
-          workflowStage: "PENDING_MANAGER_APPROVAL"
+          workflowStage: leaveStages.pendingManager
         }
       });
       await tx.approvalHistory.create({
@@ -194,17 +195,41 @@ router.post("/me/leaves", async (req, res, next) => {
           comments: "Submitted by employee"
         }
       });
+      await notifyLeaveAction(tx, {
+        leave: { ...created, employee },
+        action: "SUBMITTED",
+        actorName: `${employee.firstName} ${employee.lastName}`,
+        actorRole: "Employee",
+        recipients: [
+          {
+            keySuffix: "employee",
+            userId: req.user?.id,
+            employeeId,
+            email: employee.email,
+            title: "Leave request submitted",
+            message: `Your leave request ${created.requestNumber} has been submitted and is pending Manager approval.`,
+            link: "/employee/leaves"
+          }
+        ]
+      });
       if (employee.managerId) {
         const managerUser = await tx.user.findUnique({ where: { employeeId: employee.managerId } });
-        await tx.notification.create({
-          data: {
-            userId: managerUser?.id,
-            employeeId: employee.managerId,
-            title: "Leave approval pending",
-            message: `${employee.firstName} ${employee.lastName} submitted leave request ${created.requestNumber}.`,
-            category: "LEAVE_MANAGER_PENDING",
-            metadata: { leaveRequestId: created.id }
-          }
+        await notifyLeaveAction(tx, {
+          leave: { ...created, employee },
+          action: "PENDING_MANAGER",
+          actorName: `${employee.firstName} ${employee.lastName}`,
+          actorRole: "Employee",
+          recipients: [
+            {
+              keySuffix: "manager",
+              userId: managerUser?.id,
+              employeeId: employee.managerId,
+              email: managerUser?.email,
+              title: "Leave approval pending",
+              message: `${employee.firstName} ${employee.lastName} submitted leave request ${created.requestNumber}.`,
+              link: "/manager/leave-approvals"
+            }
+          ]
         });
       }
       return created;
@@ -212,6 +237,64 @@ router.post("/me/leaves", async (req, res, next) => {
 
     await audit(req, "SUBMIT_LEAVE", "LeaveRequest", leave.id, { days, type: body.type, previousStatus: null, newStatus: leave.workflowStage });
     res.status(201).json(leave);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.patch("/me/leaves/:id/resubmit", async (req, res, next) => {
+  try {
+    const employeeId = requireEmployeeId(req.user?.employeeId);
+    const id = String(req.params.id);
+    const body = leaveRequestSchema.partial().parse(req.body);
+
+    const existing = await prisma.leaveRequest.findFirst({ where: { id, employeeId }, include: { employee: { include: { department: true, manager: true } } } });
+    if (!existing) throw new AppError(404, "Leave request not found");
+    if (existing.workflowStage !== leaveStages.returned) throw new AppError(400, "Only returned leave requests can be resubmitted");
+
+    const startDate = body.startDate ?? existing.startDate;
+    const endDate = body.endDate ?? existing.endDate;
+    if (endDate < startDate) throw new AppError(400, "End date must be on or after start date");
+    const days = daysBetween(startDate, endDate);
+
+    const leave = await prisma.$transaction(async (tx) => {
+      const updated = await tx.leaveRequest.update({
+        where: { id },
+        data: {
+          type: body.type ?? existing.type,
+          startDate,
+          endDate,
+          days,
+          reason: body.reason ?? existing.reason,
+          contactNumber: body.contactNumber ?? existing.contactNumber,
+          leaveAddress: body.leaveAddress ?? existing.leaveAddress,
+          emergencyContact: body.emergencyContact ?? existing.emergencyContact,
+          attachmentName: body.attachmentName ?? existing.attachmentName,
+          status: ApprovalStatus.PENDING,
+          workflowStage: leaveStages.pendingManager,
+          comments: null,
+          decidedAt: null
+        }
+      });
+      await tx.approvalHistory.create({
+        data: { leaveRequestId: id, module: "Leave", entityId: id, status: ApprovalStatus.PENDING, comments: "Resubmitted after correction", actedBy: req.user?.id }
+      });
+      const managerUser = existing.employee.managerId ? await tx.user.findUnique({ where: { employeeId: existing.employee.managerId } }) : null;
+      await notifyLeaveAction(tx, {
+        leave: { ...updated, employee: existing.employee },
+        action: "RESUBMITTED",
+        actorName: `${existing.employee.firstName} ${existing.employee.lastName}`,
+        actorRole: "Employee",
+        recipients: [
+          { keySuffix: "employee", userId: req.user?.id, employeeId, email: existing.employee.email, title: "Leave request resubmitted", message: `Your leave request ${updated.requestNumber} has been resubmitted.`, link: "/employee/leaves" },
+          { keySuffix: "manager", userId: managerUser?.id, employeeId: existing.employee.managerId, email: managerUser?.email, title: "Leave approval pending", message: `${existing.employee.firstName} ${existing.employee.lastName} resubmitted ${updated.requestNumber}.`, link: "/manager/leave-approvals" }
+        ].filter((recipient) => recipient.employeeId || recipient.userId)
+      });
+      return updated;
+    });
+
+    await audit(req, "RESUBMIT_LEAVE", "LeaveRequest", id, { previousStatus: existing.workflowStage, newStatus: leave.workflowStage });
+    res.json(leave);
   } catch (error) {
     next(error);
   }

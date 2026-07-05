@@ -78,6 +78,7 @@ async function logLogin(req: { ip?: string; headers: Record<string, unknown> }, 
 function dashboardForRole(role: Role) {
   if (role === Role.EMPLOYEE) return "/employee/dashboard";
   if (role === Role.DEPARTMENT_MANAGER) return "/manager/dashboard";
+  if (role === Role.OPERATIONS_MANAGER) return "/om/leave-approvals";
   if (([Role.HR, Role.HR_MANAGER, Role.HR_OFFICER] as Role[]).includes(role)) return "/dashboard";
   if (([Role.PAYROLL_OFFICER, Role.ACCOUNTANT, Role.FINANCE] as Role[]).includes(role)) return "/payroll";
   return "/dashboard";
@@ -103,6 +104,12 @@ router.post("/login", async (req, res, next) => {
       const user = { id: "preview-manager-user", email: "manager@company.com", role: "DEPARTMENT_MANAGER" as const, employeeId: "preview-manager-1" };
       const token = signAccessToken({ sub: user.id, email: user.email, role: user.role, employeeId: user.employeeId });
       return res.json({ token, user, redirectTo: "/manager/dashboard" });
+    }
+
+    if (env.HRMS_PREVIEW_MODE && ["EMP-020", "om@company.com"].includes(loginId) && body.password === "Om@12345") {
+      const user = { id: "preview-om-user", email: "om@company.com", role: "OPERATIONS_MANAGER" as const, employeeId: "preview-om-1" };
+      const token = signAccessToken({ sub: user.id, email: user.email, role: user.role, employeeId: user.employeeId });
+      return res.json({ token, user, redirectTo: "/om/leave-approvals" });
     }
 
     const user = loginId.includes("@")

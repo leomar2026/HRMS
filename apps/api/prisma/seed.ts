@@ -99,6 +99,26 @@ async function main() {
     }
   });
 
+  const omEmployee = await prisma.employee.upsert({
+    where: { employeeCode: "EMP-020" },
+    update: { email: "om@company.com", departmentId: staffDepartment.id },
+    create: {
+      employeeCode: "EMP-020",
+      nationalId: "1000000020",
+      firstName: "Operations",
+      lastName: "Manager",
+      email: "om@company.com",
+      phone: "+966544444444",
+      jobTitle: "Operations Manager",
+      joiningDate: new Date("2026-01-20"),
+      basicSalary: 18000,
+      housingAllowance: 4500,
+      transportAllowance: 1500,
+      otherAllowance: 0,
+      departmentId: staffDepartment.id
+    }
+  });
+
   await prisma.user.upsert({
     where: { email: "manager@company.com" },
     update: {
@@ -129,6 +149,23 @@ async function main() {
       passwordHash: await bcrypt.hash("Employee@123", Number(process.env.BCRYPT_ROUNDS ?? 12)),
       role: Role.EMPLOYEE,
       employeeId: staffEmployee.id,
+      portalStatus: "ACTIVE"
+    }
+  });
+
+  await prisma.user.upsert({
+    where: { email: "om@company.com" },
+    update: {
+      passwordHash: await bcrypt.hash("Om@12345", Number(process.env.BCRYPT_ROUNDS ?? 12)),
+      role: Role.OPERATIONS_MANAGER,
+      employeeId: omEmployee.id,
+      portalStatus: "ACTIVE"
+    },
+    create: {
+      email: "om@company.com",
+      passwordHash: await bcrypt.hash("Om@12345", Number(process.env.BCRYPT_ROUNDS ?? 12)),
+      role: Role.OPERATIONS_MANAGER,
+      employeeId: omEmployee.id,
       portalStatus: "ACTIVE"
     }
   });
@@ -207,6 +244,24 @@ async function main() {
       where: { provider },
       update: { environment: "SANDBOX" },
       create: { provider, environment: "SANDBOX", enabled: false }
+    });
+  }
+
+  const emailTemplates = [
+    ["LEAVE_SUBMITTED", "Leave request submitted", "Your leave request {{leave_request_number}} has been submitted and is pending Manager approval."],
+    ["LEAVE_PENDING_MANAGER", "Leave approval pending", "{{employee_name}} submitted leave request {{leave_request_number}}. {{approval_link}}"],
+    ["LEAVE_MANAGER_APPROVE", "Leave approved by Manager", "Your leave request {{leave_request_number}} has been approved by your Manager and is pending OM approval."],
+    ["LEAVE_OM_APPROVE", "Leave approved by OM", "Your leave request {{leave_request_number}} has been approved by OM and is pending HR Manager approval."],
+    ["LEAVE_HR_MANAGER_APPROVE", "Leave Final Approved", "Your leave request {{leave_request_number}} has been Final Approved. Updated balance: {{updated_balance}}."],
+    ["LEAVE_REJECTED", "Leave request rejected", "Your leave request {{leave_request_number}} was rejected by {{approver_role}}. Comments: {{approval_comments}}"],
+    ["LEAVE_RETURNED", "Leave request returned for correction", "Your leave request {{leave_request_number}} was returned by {{approver_role}}. Comments: {{approval_comments}}"]
+  ];
+
+  for (const [code, subject, body] of emailTemplates) {
+    await prisma.emailTemplate.upsert({
+      where: { code },
+      update: { subject, body, active: true },
+      create: { code, subject, body, active: true }
     });
   }
 }

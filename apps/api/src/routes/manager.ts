@@ -6,6 +6,7 @@ import { requireAuth } from "../middleware/auth.js";
 import { AppError } from "../middleware/error.js";
 import { requireRoles } from "../middleware/rbac.js";
 import { audit } from "../utils/audit.js";
+import { approvalStatusForDecision, findOmUsers, leaveStages, notifyLeaveAction, nextStageForApproval } from "../utils/leaveWorkflow.js";
 
 const router = Router();
 
@@ -71,19 +72,20 @@ router.patch("/leave-approvals/:id/decision", async (req, res, next) => {
     const body = decisionSchema.parse(req.body);
     if (body.decision !== "APPROVE" && !body.comments) throw new AppError(400, "Comments are required for rejection or return");
 
-    const leave = await prisma.leaveRequest.findUnique({ where: { id }, include: { employee: true } });
+    const leave = await prisma.leaveRequest.findUnique({ where: { id }, include: { employee: { include: { department: true } } } });
     if (!leave) throw new AppError(404, "Leave request not found");
     if (leave.employeeId === managerId) throw new AppError(403, "Managers cannot approve their own leave");
     if (leave.managerId !== managerId) throw new AppError(403, "Leave request is outside your reporting structure");
-    if (leave.workflowStage !== "PENDING_MANAGER_APPROVAL") throw new AppError(400, "Leave is not pending manager approval");
+    if (leave.workflowStage !== leaveStages.pendingManager) throw new AppError(400, "Leave is not pending manager approval");
 
-    const nextStage = body.decision === "APPROVE" ? "PENDING_HR_APPROVAL" : body.decision === "REJECT" ? "MANAGER_REJECTED" : "RETURNED_FOR_CORRECTION";
-    const nextStatus = body.decision === "REJECT" ? ApprovalStatus.REJECTED : body.decision === "RETURN_FOR_CORRECTION" ? ApprovalStatus.RETURNED_FOR_CORRECTION : ApprovalStatus.PENDING;
+    const nextStage = body.decision === "APPROVE" ? nextStageForApproval(leave.workflowStage) : body.decision === "REJECT" ? leaveStages.rejected : leaveStages.returned;
+    const nextStatus = approvalStatusForDecision(body.decision);
 
     const updated = await prisma.$transaction(async (tx) => {
+      const omUsers = body.decision === "APPROVE" ? await findOmUsers(tx, leave.employee.departmentId) : [];
       const result = await tx.leaveRequest.update({
         where: { id },
-        data: { workflowStage: nextStage, status: nextStatus, comments: body.comments, approvedBy: req.user?.id, decidedAt: new Date() }
+        data: { workflowStage: nextStage, status: nextStatus, comments: body.comments, approvedBy: req.user?.id, decidedAt: new Date(), omApproverId: omUsers[0]?.employeeId }
       });
       await tx.approvalHistory.create({
         data: {
@@ -95,25 +97,37 @@ router.patch("/leave-approvals/:id/decision", async (req, res, next) => {
           actedBy: req.user?.id
         }
       });
-      await tx.notification.create({
-        data: {
-          employeeId: leave.employeeId,
-          title: `Leave ${body.decision.toLowerCase().replace(/_/g, " ")}`,
-          message: `Manager decision recorded for ${leave.requestNumber}.`,
-          category: `LEAVE_MANAGER_${body.decision}`,
-          metadata: { leaveRequestId: id }
-        }
+      await notifyLeaveAction(tx, {
+        leave: { ...result, employee: leave.employee },
+        action: `MANAGER_${body.decision}`,
+        actorName: req.user?.email ?? "Manager",
+        actorRole: "Manager",
+        comments: body.comments,
+        recipients: [
+          {
+            keySuffix: "employee",
+            employeeId: leave.employeeId,
+            email: leave.employee.email,
+            title: body.decision === "APPROVE" ? "Leave approved by Manager" : `Leave ${body.decision.toLowerCase().replace(/_/g, " ")}`,
+            message: body.decision === "APPROVE" ? `Your leave request ${leave.requestNumber} has been approved by your Manager and is pending OM approval.` : `Manager decision recorded for ${leave.requestNumber}.`,
+            link: "/employee/leaves"
+          }
+        ]
       });
       if (body.decision === "APPROVE") {
-        const hrUsers = await tx.user.findMany({ where: { role: { in: [Role.HR, Role.HR_MANAGER, Role.HR_OFFICER] } } });
-        await tx.notification.createMany({
-          data: hrUsers.map((user) => ({
+        await notifyLeaveAction(tx, {
+          leave: { ...result, employee: leave.employee },
+          action: "PENDING_OM",
+          actorName: req.user?.email ?? "Manager",
+          actorRole: "Manager",
+          recipients: omUsers.map((user) => ({
+            keySuffix: `om-${user.id}`,
             userId: user.id,
             employeeId: user.employeeId,
-            title: "HR leave approval pending",
-            message: `${leave.requestNumber} is pending HR approval.`,
-            category: "LEAVE_HR_PENDING",
-            metadata: { leaveRequestId: id }
+            email: user.email,
+            title: "OM leave approval pending",
+            message: `${leave.requestNumber} is pending OM approval.`,
+            link: "/om/leave-approvals"
           }))
         });
       }

@@ -17,6 +17,7 @@ enum Role {
   ACCOUNTANT
   FINANCE
   DEPARTMENT_MANAGER
+  OPERATIONS_MANAGER
   EMPLOYEE
   AUDITOR
 }
@@ -274,6 +275,8 @@ model LeaveRequest {
   employee    Employee       @relation(fields: [employeeId], references: [id])
   managerId   String?
   manager     Employee?      @relation("LeaveManager", fields: [managerId], references: [id])
+  omApproverId String?
+  hrApproverId String?
   type        LeaveType
   startDate   DateTime
   endDate     DateTime
@@ -292,6 +295,41 @@ model LeaveRequest {
   approvalHistory ApprovalHistory[]
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
+}
+
+model SystemSetting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     Json
+  encrypted Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model EmailTemplate {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  subject   String
+  body      String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model EmailLog {
+  id                 String   @id @default(cuid())
+  notificationKey    String   @unique
+  recipient          String
+  subject            String
+  templateCode       String
+  leaveRequestNumber String?
+  status             String   @default("PENDING")
+  sentAt             DateTime?
+  failureReason      String?
+  retryCount         Int      @default(0)
+  payload            Json?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 }
 
 model PayrollRun {
@@ -547,6 +585,7 @@ model Notification {
   title       String
   message     String
   category    String
+  notificationKey String? @unique
   readAt      DateTime?
   metadata    Json?
   createdAt   DateTime @default(now())

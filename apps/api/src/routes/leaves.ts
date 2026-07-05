@@ -1,11 +1,12 @@
 import { Router } from "express";
-import { LeaveType, Role } from "@prisma/client";
+import { AttendanceStatus, LeaveType, Role } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { requireAuth } from "../middleware/auth.js";
 import { requireRoles } from "../middleware/rbac.js";
 import { AppError } from "../middleware/error.js";
 import { audit } from "../utils/audit.js";
+import { approvalStatusForDecision, leaveStages, notifyLeaveAction } from "../utils/leaveWorkflow.js";
 
 const router = Router();
 
@@ -64,13 +65,13 @@ router.patch("/:id/decision", requireRoles(Role.ADMIN, Role.SUPER_ADMIN, Role.HR
     const id = String(req.params.id);
     const { decision, comments } = decisionSchema.parse(req.body);
     if (decision !== "APPROVE" && !comments) throw new AppError(400, "Comments are required for rejection or return");
-    const leave = await prisma.leaveRequest.findUnique({ where: { id } });
+    const leave = await prisma.leaveRequest.findUnique({ where: { id }, include: { employee: { include: { department: true } } } });
     if (!leave) throw new AppError(404, "Leave request not found");
     if (leave.employeeId === req.user?.employeeId) throw new AppError(403, "You cannot approve your own leave request");
-    if (!["PENDING_HR_APPROVAL", "PENDING_MANAGER_APPROVAL"].includes(leave.workflowStage)) throw new AppError(400, "Leave is not pending HR approval");
+    if (leave.workflowStage !== leaveStages.pendingHr) throw new AppError(400, "Leave is not pending HR Manager approval");
 
-    const nextStage = decision === "APPROVE" ? "FINAL_APPROVED" : decision === "REJECT" ? "HR_REJECTED" : "RETURNED_FOR_CORRECTION";
-    const nextStatus = decision === "APPROVE" ? "APPROVED" : decision === "REJECT" ? "REJECTED" : "RETURNED_FOR_CORRECTION";
+    const nextStage = decision === "APPROVE" ? leaveStages.finalApproved : decision === "REJECT" ? leaveStages.rejected : leaveStages.returned;
+    const nextStatus = approvalStatusForDecision(decision, decision === "APPROVE");
 
     const updated = await prisma.$transaction(async (tx) => {
       const result = await tx.leaveRequest.update({
@@ -89,16 +90,68 @@ router.patch("/:id/decision", requireRoles(Role.ADMIN, Role.SUPER_ADMIN, Role.HR
       });
       if (decision === "APPROVE" && leave.type === "ANNUAL") {
         await tx.employee.update({ where: { id: leave.employeeId }, data: { leaveBalance: { decrement: leave.days } } });
+        await tx.attendance.createMany({
+          data: Array.from({ length: leave.days }).map((_, index) => {
+            const workDate = new Date(leave.startDate);
+            workDate.setDate(workDate.getDate() + index);
+            return { employeeId: leave.employeeId, workDate, status: AttendanceStatus.LEAVE, source: "LEAVE_APPROVAL" };
+          }),
+          skipDuplicates: true
+        });
       }
-      await tx.notification.create({
-        data: {
-          employeeId: leave.employeeId,
-          title: `Leave ${decision.toLowerCase().replace(/_/g, " ")}`,
-          message: `HR decision recorded for ${leave.requestNumber}.`,
-          category: `LEAVE_HR_${decision}`,
-          metadata: { leaveRequestId: id }
-        }
+      const refreshedEmployee = await tx.employee.findUnique({ where: { id: leave.employeeId }, include: { department: true } });
+      const managerUser = leave.managerId ? await tx.user.findUnique({ where: { employeeId: leave.managerId } }) : null;
+      const omUser = leave.omApproverId ? await tx.user.findUnique({ where: { employeeId: leave.omApproverId } }) : null;
+      await notifyLeaveAction(tx, {
+        leave: { ...result, employee: refreshedEmployee ?? leave.employee },
+        action: `HR_MANAGER_${decision}`,
+        actorName: req.user?.email ?? "HR Manager",
+        actorRole: "HR Manager",
+        comments,
+        recipients: [
+          {
+            keySuffix: "employee",
+            employeeId: leave.employeeId,
+            email: leave.employee.email,
+            title: decision === "APPROVE" ? "Leave Final Approved" : `Leave ${decision.toLowerCase().replace(/_/g, " ")}`,
+            message: decision === "APPROVE" ? `Your leave request ${leave.requestNumber} has been Final Approved.` : `HR Manager decision recorded for ${leave.requestNumber}.`,
+            link: "/employee/leaves"
+          },
+          ...(decision === "APPROVE"
+            ? [
+                {
+                  keySuffix: "manager-info",
+                  userId: managerUser?.id,
+                  employeeId: leave.managerId,
+                  email: managerUser?.email,
+                  title: "Leave Final Approved",
+                  message: `${leave.requestNumber} has been Final Approved by HR Manager.`,
+                  link: "/manager/leave-approvals"
+                },
+                {
+                  keySuffix: "om-info",
+                  userId: omUser?.id,
+                  employeeId: leave.omApproverId,
+                  email: omUser?.email,
+                  title: "Leave Final Approved",
+                  message: `${leave.requestNumber} has been Final Approved by HR Manager.`,
+                  link: "/om/leave-approvals"
+                }
+              ].filter((recipient) => recipient.userId || recipient.employeeId)
+            : [])
+        ]
       });
+      if (decision === "APPROVE" && leave.type === "ANNUAL") {
+        await tx.auditLog.create({
+          data: {
+            userId: req.user?.id,
+            action: "LEAVE_BALANCE_DEDUCTION",
+            entity: "LeaveRequest",
+            entityId: id,
+            metadata: { leaveRequestNumber: leave.requestNumber, employeeId: leave.employee.employeeCode, days: leave.days }
+          }
+        });
+      }
       return result;
     });
 

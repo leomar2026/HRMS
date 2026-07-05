@@ -24,8 +24,10 @@ import leaveBalanceUploadRoutes from "./routes/leaveBalanceUploads.js";
 import employeeImportRoutes from "./routes/employeeImports.js";
 import groupRoutes from "./routes/groups.js";
 import managerRoutes from "./routes/manager.js";
+import operationsManagerRoutes from "./routes/operationsManager.js";
 import draftRoutes from "./routes/drafts.js";
 import companyProfileRoutes from "./routes/companyProfile.js";
+import notificationAdminRoutes from "./routes/notificationAdmin.js";
 
 export const app = express();
 
@@ -41,8 +43,10 @@ if (env.HRMS_PREVIEW_MODE) {
 }
 app.use("/api/employee", employeeSelfServiceRoutes);
 app.use("/api/manager", managerRoutes);
+app.use("/api/om", operationsManagerRoutes);
 app.use("/api/drafts", draftRoutes);
 app.use("/api/company-profile", companyProfileRoutes);
+app.use("/api/notification-admin", notificationAdminRoutes);
 app.use("/api/employees", employeeRoutes);
 app.use("/api/departments", departmentRoutes);
 app.use("/api/attendance", attendanceRoutes);

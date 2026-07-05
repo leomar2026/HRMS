@@ -4,13 +4,13 @@ import { Check, RotateCcw, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-export function ManagerDecisionForm({ leaveId }: { leaveId: string }) {
+export function LeaveDecisionForm({ leaveId, endpoint }: { leaveId: string; endpoint: string }) {
   const router = useRouter();
   const [message, setMessage] = useState("");
   const [comments, setComments] = useState("");
 
   async function decide(decision: "APPROVE" | "REJECT" | "RETURN_FOR_CORRECTION") {
-    const response = await fetch(`/api/backend/manager/leave-approvals/${leaveId}/decision`, {
+    const response = await fetch(`/api/backend/${endpoint}/${leaveId}/decision`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ decision, comments: comments || undefined })
@@ -30,4 +30,12 @@ export function ManagerDecisionForm({ leaveId }: { leaveId: string }) {
       </div>
     </div>
   );
+}
+
+export function ManagerDecisionForm({ leaveId }: { leaveId: string }) {
+  return <LeaveDecisionForm leaveId={leaveId} endpoint="manager/leave-approvals" />;
+}
+
+export function OmDecisionForm({ leaveId }: { leaveId: string }) {
+  return <LeaveDecisionForm leaveId={leaveId} endpoint="om/leave-approvals" />;
 }

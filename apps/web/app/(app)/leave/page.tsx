@@ -37,7 +37,7 @@ export default async function LeavePage() {
                 <td>{leave.days}</td>
                 <td><span className={leave.status === "PENDING" ? "status warn" : "status"}>{leave.workflowStage ?? leave.status}</span></td>
                 <td>{leave.comments ?? "-"}</td>
-                <td>{["PENDING_HR_APPROVAL", "PENDING_MANAGER_APPROVAL"].includes(leave.workflowStage ?? "") ? <HrLeaveDecisionForm leaveId={leave.id} /> : "-"}</td>
+                <td>{leave.workflowStage === "PENDING_HR_MANAGER_APPROVAL" ? <HrLeaveDecisionForm leaveId={leave.id} /> : "-"}</td>
               </tr>
             ))}
           </tbody>

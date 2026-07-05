@@ -52,6 +52,20 @@ const managerEmployee = {
   department: { id: "preview-dept-3", name: "Operations", code: "OPS" }
 };
 
+const omEmployee = {
+  id: "preview-om-1",
+  employeeCode: "EMP-020",
+  nationalId: "1000000020",
+  firstName: "Operations",
+  lastName: "Manager",
+  email: "om@company.com",
+  phone: "+966544444444",
+  jobTitle: "Operations Manager",
+  status: "ACTIVE",
+  leaveBalance: 21,
+  department: { id: "preview-dept-3", name: "Operations", code: "OPS" }
+};
+
 previewRouter.use(requireAuth);
 
 previewRouter.get("/employees", (_req, res) => res.json([employee]));
@@ -227,6 +241,13 @@ previewRouter.get("/leaves", (_req, res) => res.json([
     employee
   }
 ]));
+previewRouter.patch("/leaves/:id/decision", (req, res) => res.json({
+  ...managerLeave,
+  id: req.params.id,
+  workflowStage: req.body.decision === "APPROVE" ? "FINAL_APPROVED" : req.body.decision === "RETURN_FOR_CORRECTION" ? "RETURNED_FOR_CORRECTION" : "REJECTED",
+  status: req.body.decision === "APPROVE" ? "APPROVED" : req.body.decision,
+  comments: req.body.comments
+}));
 
 const managerLeave = {
   id: "preview-employee-leave-1",
@@ -254,7 +275,9 @@ previewRouter.get("/manager/dashboard", (_req, res) => res.json({
   recentApprovals: []
 }));
 previewRouter.get("/manager/leave-approvals", (_req, res) => res.json([managerLeave]));
-previewRouter.patch("/manager/leave-approvals/:id/decision", (req, res) => res.json({ ...managerLeave, id: req.params.id, workflowStage: req.body.decision === "APPROVE" ? "PENDING_HR_APPROVAL" : req.body.decision, comments: req.body.comments }));
+previewRouter.patch("/manager/leave-approvals/:id/decision", (req, res) => res.json({ ...managerLeave, id: req.params.id, workflowStage: req.body.decision === "APPROVE" ? "PENDING_OM_APPROVAL" : req.body.decision === "RETURN_FOR_CORRECTION" ? "RETURNED_FOR_CORRECTION" : req.body.decision, comments: req.body.comments }));
+previewRouter.get("/om/leave-approvals", (_req, res) => res.json([{ ...managerLeave, workflowStage: "PENDING_OM_APPROVAL", omApproverId: omEmployee.id }]));
+previewRouter.patch("/om/leave-approvals/:id/decision", (req, res) => res.json({ ...managerLeave, id: req.params.id, workflowStage: req.body.decision === "APPROVE" ? "PENDING_HR_MANAGER_APPROVAL" : req.body.decision === "RETURN_FOR_CORRECTION" ? "RETURNED_FOR_CORRECTION" : req.body.decision, comments: req.body.comments }));
 
 previewRouter.get("/payroll", (_req, res) => res.json([
   {
@@ -373,6 +396,15 @@ previewRouter.get("/announcements", (_req, res) => res.json([
   { id: "ann-1", title: "Employee Self-Service Portal", body: "Self-service is live.", publishedAt: new Date().toISOString() }
 ]));
 previewRouter.post("/announcements", (req, res) => res.status(201).json({ id: "ann-new", ...req.body }));
+previewRouter.get("/notification-admin/email-templates", (_req, res) => res.json([
+  { id: "tpl-1", code: "LEAVE_SUBMITTED", subject: "Leave request submitted", body: "Your leave request {{leave_request_number}} is pending Manager approval.", active: true }
+]));
+previewRouter.put("/notification-admin/email-templates/:code", (req, res) => res.json({ id: `tpl-${req.params.code}`, code: req.params.code, ...req.body }));
+previewRouter.post("/notification-admin/email-templates/:code/test", (req, res) => res.status(202).json({ id: "email-test-preview", templateCode: req.params.code, recipient: req.body.recipient, status: "PENDING" }));
+previewRouter.get("/notification-admin/email-logs", (_req, res) => res.json([
+  { id: "email-log-1", notificationKey: "preview-email", recipient: "employee@company.com", subject: "Leave request submitted", templateCode: "LEAVE_SUBMITTED", leaveRequestNumber: "LR-PREVIEW-001", status: "PENDING", createdAt: new Date().toISOString() }
+]));
+previewRouter.post("/notification-admin/email-logs/:id/resend", (req, res) => res.json({ id: req.params.id, status: "PENDING", retryCount: 1 }));
 
 const payrollUploadBatch = {
   id: "preview-payroll-upload-1",

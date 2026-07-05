@@ -58,6 +58,7 @@ const sections = [
       { href: "/reports", label: "Reports", icon: FileSpreadsheet },
       { href: "/permissions", label: "Permissions", icon: KeyRound },
       { href: "/admin-password-reset", label: "Password Reset", icon: KeyRound },
+      { href: "/notification-admin", label: "Leave Notifications", icon: Bell },
       { href: "/group-management", label: "All Groups", icon: Users },
       { href: "/announcements", label: "Announcements", icon: Bell },
       { href: "/audit-logs", label: "Audit Logs", icon: ClipboardCheck }
