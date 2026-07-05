@@ -104,9 +104,28 @@ textarea {
 }
 
 .brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   font-size: calc(18px * var(--font-scale));
   font-weight: 700;
   padding: 8px 10px 22px;
+  min-height: 64px;
+}
+
+.brand img {
+  width: 42px;
+  height: 42px;
+  object-fit: contain;
+  border-radius: 8px;
+  background: white;
+  padding: 4px;
+  flex: 0 0 auto;
+}
+
+.brand span {
+  overflow-wrap: anywhere;
+  line-height: 1.2;
 }
 
 .nav {

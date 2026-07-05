@@ -65,10 +65,21 @@ const sections = [
   }
 ];
 
-export function Sidebar() {
+type SidebarBranding = {
+  companyName?: string;
+  logoDataUrl?: string;
+  logoVersion?: number;
+};
+
+export function Sidebar({ branding }: { branding?: SidebarBranding }) {
+  const logoSrc = branding?.logoDataUrl ? `${branding.logoDataUrl}#v=${branding.logoVersion ?? 1}` : "";
+
   return (
     <aside className="sidebar">
-      <div className="brand">Saudi HRMS</div>
+      <div className="brand">
+        {logoSrc ? <img src={logoSrc} alt={`${branding?.companyName ?? "Company"} logo`} /> : null}
+        <span>{branding?.companyName ?? "Saudi HRMS"}</span>
+      </div>
       <nav className="nav">
         {sections.map((section) => (
           <div className="nav-section" key={section.title}>

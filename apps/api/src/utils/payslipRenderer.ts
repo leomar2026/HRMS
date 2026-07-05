@@ -140,7 +140,7 @@ function drawComponentTable(doc: PDFKit.PDFDocument, title: string, rows: Paysli
 
 function dataUrlImageBuffer(dataUrl?: string) {
   if (!dataUrl) return null;
-  const match = dataUrl.match(/^data:image\/(png|jpeg|jpg|webp);base64,(.+)$/);
+  const match = dataUrl.match(/^data:image\/(png|jpeg|jpg);base64,(.+)$/);
   if (!match) return null;
   return Buffer.from(match[2], "base64");
 }

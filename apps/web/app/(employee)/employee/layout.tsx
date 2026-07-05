@@ -1,10 +1,19 @@
 import { EmployeeSidebar } from "@/components/EmployeeSidebar";
 import { Topbar } from "@/components/SessionControls";
+import { apiFetch } from "@/lib/api";
 
-export default function EmployeeLayout({ children }: { children: React.ReactNode }) {
+type CompanyBranding = {
+  companyName?: string;
+  logoDataUrl?: string;
+  logoVersion?: number;
+};
+
+export default async function EmployeeLayout({ children }: { children: React.ReactNode }) {
+  const branding = await apiFetch<CompanyBranding>("/company-profile");
+
   return (
     <div className="app-shell">
-      <EmployeeSidebar />
+      <EmployeeSidebar branding={branding} />
       <main className="content"><Topbar />{children}</main>
     </div>
   );

@@ -33,9 +33,9 @@ export function CompanyProfileForm({ profile }: { profile: CompanyProfile }) {
 
   function handleLogo(file?: File) {
     if (!file) return;
-    const allowedTypes = ["image/png", "image/jpeg", "image/webp"];
+    const allowedTypes = ["image/png", "image/jpeg"];
     if (!allowedTypes.includes(file.type)) {
-      setMessage("Upload a PNG, JPG, or WebP logo. SVG files are not supported for PDFs.");
+      setMessage("Upload a PNG or JPG logo. SVG and WebP files are not supported for PDFs.");
       return;
     }
     if (file.size > 2_000_000) {
@@ -118,7 +118,7 @@ export function CompanyProfileForm({ profile }: { profile: CompanyProfile }) {
         </div>
         <label className="button secondary">
           <Upload size={16} /> Upload Logo
-          <input hidden type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => handleLogo(event.target.files?.[0])} />
+          <input hidden type="file" accept="image/png,image/jpeg" onChange={(event) => handleLogo(event.target.files?.[0])} />
         </label>
         {logoDataUrl ? <button className="button secondary" type="button" onClick={() => { setLogoDataUrl(""); setDeleteLogo(true); }}>Delete Logo</button> : null}
       </div>

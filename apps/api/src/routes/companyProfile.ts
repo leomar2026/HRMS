@@ -6,8 +6,11 @@ import { prisma } from "../lib/prisma.js";
 import { requireAuth } from "../middleware/auth.js";
 import { requireRoles } from "../middleware/rbac.js";
 import { audit } from "../utils/audit.js";
+import { defaultPreviewCompanyProfile, getPreviewCompanyProfile, updatePreviewCompanyProfile } from "../utils/previewCompanyProfile.js";
 
 const router = Router();
+
+const documentImageSchema = z.string().regex(/^data:image\/(png|jpeg|jpg);base64,/, "Upload a PNG or JPG image.").max(2_500_000);
 
 const companyProfileSchema = z.object({
   companyName: z.string().min(2),
@@ -25,71 +28,19 @@ const companyProfileSchema = z.object({
   qiwaReference: z.string().optional(),
   bankDetails: z.string().optional(),
   authorizedSignatory: z.string().optional(),
-  companyStampDataUrl: z.string().startsWith("data:image/").max(2_500_000, "Company stamp image must be 2 MB or smaller.").optional().or(z.literal("")),
+  companyStampDataUrl: documentImageSchema.optional().or(z.literal("")),
   letterheadSettings: z.record(z.unknown()).optional(),
-  logoDataUrl: z.string().startsWith("data:image/").max(2_500_000, "Company logo must be 2 MB or smaller.").optional().or(z.literal("")),
+  logoDataUrl: documentImageSchema.optional().or(z.literal("")),
   deleteLogo: z.boolean().optional(),
   documentCompanyMode: z.enum(["CURRENT", "APPROVAL_TIME"]).default("CURRENT")
 });
 
-type PreviewCompanyProfile = {
-  id: string;
-  companyName: string;
-  companyNameArabic?: string;
-  registrationNumber?: string;
-  vatNumber?: string;
-  address?: string;
-  city?: string;
-  country?: string;
-  phone?: string;
-  fax?: string;
-  email?: string;
-  website?: string;
-  gosiNumber?: string;
-  qiwaReference?: string;
-  bankDetails?: string;
-  authorizedSignatory?: string;
-  companyStampDataUrl?: string;
-  letterheadSettings?: Record<string, unknown>;
-  logoDataUrl?: string;
-  logoVersion: number;
-  documentCompanyMode: "CURRENT" | "APPROVAL_TIME";
-  updatedBy?: string;
-  updatedAt?: string;
-};
-
-const previewCompany: PreviewCompanyProfile = {
-  id: "default",
-  companyName: "Demo Company",
-  companyNameArabic: "شركة تجريبية",
-  registrationNumber: "CR 1007552026",
-  vatNumber: "300000000000003",
-  address: "King Fahd Road",
-  city: "Riyadh",
-  country: "Saudi Arabia",
-  phone: "+966 11 000 0000",
-  fax: "+966 11 000 0001",
-  email: "hr@company.sa",
-  website: "https://company.sa",
-  gosiNumber: "GOSI-1007552026",
-  qiwaReference: "QIWA-1007552026",
-  bankDetails: "Al Rajhi Bank - SA0380000000608010167519",
-  authorizedSignatory: "Authorized HR Signatory",
-  companyStampDataUrl: "",
-  letterheadSettings: { showLogo: true, showCr: true, showVat: true },
-  logoDataUrl: "",
-  logoVersion: 1,
-  documentCompanyMode: "CURRENT"
-};
-
-let previewCompanyState: PreviewCompanyProfile = { ...previewCompany };
-
 router.use(requireAuth);
 
 router.get("/", async (_req, res) => {
-  if (env.HRMS_PREVIEW_MODE) return res.json(previewCompanyState);
+  if (env.HRMS_PREVIEW_MODE) return res.json(getPreviewCompanyProfile());
   const profile = await prisma.companyProfile.findUnique({ where: { id: "default" } });
-  res.json(profile ?? { ...previewCompany, companyName: "Saudi HRMS Company" });
+  res.json(profile ?? { ...defaultPreviewCompanyProfile, companyName: "Saudi HRMS Company" });
 });
 
 router.put("/", requireRoles(Role.SUPER_ADMIN, Role.ADMIN, Role.HR_MANAGER), async (req, res, next) => {
@@ -97,16 +48,17 @@ router.put("/", requireRoles(Role.SUPER_ADMIN, Role.ADMIN, Role.HR_MANAGER), asy
     const body = companyProfileSchema.parse(req.body);
     if (env.HRMS_PREVIEW_MODE) {
       const { deleteLogo, ...profileBody } = body;
-      const nextLogoDataUrl = body.deleteLogo ? "" : body.logoDataUrl ?? previewCompanyState.logoDataUrl;
-      previewCompanyState = {
-        ...previewCompanyState,
+      const currentProfile = getPreviewCompanyProfile();
+      const nextLogoDataUrl = deleteLogo ? "" : body.logoDataUrl ?? currentProfile.logoDataUrl;
+      const profile = updatePreviewCompanyProfile({
+        ...currentProfile,
         ...profileBody,
         logoDataUrl: nextLogoDataUrl,
-        logoVersion: body.logoDataUrl || deleteLogo ? previewCompanyState.logoVersion + 1 : previewCompanyState.logoVersion,
+        logoVersion: body.logoDataUrl || deleteLogo ? currentProfile.logoVersion + 1 : currentProfile.logoVersion,
         updatedBy: req.user?.id,
         updatedAt: new Date().toISOString()
-      };
-      return res.json(previewCompanyState);
+      });
+      return res.json(profile);
     }
     const previous = await prisma.companyProfile.findUnique({ where: { id: "default" } });
     const { deleteLogo, ...profileBody } = body;

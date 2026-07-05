@@ -13,10 +13,21 @@ const links = [
   { href: "/employee/announcements", label: "Announcements", icon: Bell }
 ];
 
-export function EmployeeSidebar() {
+type SidebarBranding = {
+  companyName?: string;
+  logoDataUrl?: string;
+  logoVersion?: number;
+};
+
+export function EmployeeSidebar({ branding }: { branding?: SidebarBranding }) {
+  const logoSrc = branding?.logoDataUrl ? `${branding.logoDataUrl}#v=${branding.logoVersion ?? 1}` : "";
+
   return (
     <aside className="sidebar">
-      <div className="brand">Employee Portal</div>
+      <div className="brand">
+        {logoSrc ? <img src={logoSrc} alt={`${branding?.companyName ?? "Company"} logo`} /> : null}
+        <span>{branding?.companyName ?? "Employee Portal"}</span>
+      </div>
       <nav className="nav">
         {links.map((link) => {
           const Icon = link.icon;

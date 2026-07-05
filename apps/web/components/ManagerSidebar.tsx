@@ -9,10 +9,21 @@ const links = [
   { href: "/employee/dashboard", label: "My Self-Service", icon: Users }
 ];
 
-export function ManagerSidebar() {
+type SidebarBranding = {
+  companyName?: string;
+  logoDataUrl?: string;
+  logoVersion?: number;
+};
+
+export function ManagerSidebar({ branding }: { branding?: SidebarBranding }) {
+  const logoSrc = branding?.logoDataUrl ? `${branding.logoDataUrl}#v=${branding.logoVersion ?? 1}` : "";
+
   return (
     <aside className="sidebar">
-      <div className="brand">Manager Portal</div>
+      <div className="brand">
+        {logoSrc ? <img src={logoSrc} alt={`${branding?.companyName ?? "Company"} logo`} /> : null}
+        <span>{branding?.companyName ?? "Manager Portal"}</span>
+      </div>
       <nav className="nav">
         {links.map((link) => {
           const Icon = link.icon;

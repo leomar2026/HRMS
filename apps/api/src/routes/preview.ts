@@ -3,6 +3,7 @@ import { requireAuth } from "../middleware/auth.js";
 import { getGosiStatus } from "../services/gosiService.js";
 import { getMudadStatus } from "../services/mudadService.js";
 import { getQiwaStatus } from "../services/qiwaService.js";
+import { getCurrentCompanyProfile, payslipCompanyFromProfile } from "../utils/companyProfile.js";
 import { renderPayslipPdf } from "../utils/payslipRenderer.js";
 
 export const previewRouter = Router();
@@ -144,9 +145,10 @@ previewRouter.get("/employee/me/payslips", (_req, res) => res.json([
     payrollRun: { id: "preview-payroll-employee-1", month: 6, year: 2026, status: "APPROVED" }
   }
 ]));
-previewRouter.get("/employee/me/payslips/:id/download", (req, res) => {
+previewRouter.get("/employee/me/payslips/:id/download", async (req, res) => {
+  const company = payslipCompanyFromProfile(await getCurrentCompanyProfile());
   renderPayslipPdf(res, {
-    company: { name: "Demo Company", registration: "CR 1007552026", address: "King Fahd Road", cityCountry: "Riyadh, Saudi Arabia", telephone: "+966 11 000 0000", fax: "+966 11 000 0001" },
+    company,
     employee: { name: "Employee User", code: "EMP-002", department: "Operations", designation: "Operations Specialist", nationalId: "1000000002", bankName: "Al Rajhi Bank", iban: "SA0380000000608010167519", joiningDate: "2026-02-01", status: "ACTIVE" },
     payroll: { month: 6, year: 2026, period: "June 2026", reference: "PAY-2026-06-EMP-002-PREVIEW", batchNumber: "preview-payroll-upload-1", paymentDate: "2026-06-30", paymentMethod: "Bank Transfer", printedBy: req.user?.email },
     attendance: { payrollDays: 30, presentDays: 30, absentDays: 0, weeklyOffDays: 0, publicHolidays: 0, normalOvertimeHours: 0, holidayOvertimeHours: 0 },
@@ -411,9 +413,10 @@ previewRouter.get("/payroll-uploads/:id/export.csv", (_req, res) => {
   res.send("Employee ID,Employee Name,Gross Salary,Total Deduction,Net Salary\nEMP-002,Employee User,10800.00,975.00,9825.00");
 });
 previewRouter.get("/payroll-uploads/:id/print", (_req, res) => res.send("<html><body><h1>Payroll Register</h1><script>window.print()</script></body></html>"));
-previewRouter.get("/payroll-uploads/items/:id/payslip.pdf", (req, res) => {
+previewRouter.get("/payroll-uploads/items/:id/payslip.pdf", async (req, res) => {
+  const company = payslipCompanyFromProfile(await getCurrentCompanyProfile());
   renderPayslipPdf(res, {
-    company: { name: "Demo Company", registration: "CR 1007552026", address: "King Fahd Road", cityCountry: "Riyadh, Saudi Arabia", telephone: "+966 11 000 0000", fax: "+966 11 000 0001" },
+    company,
     employee: { name: "Employee User", code: "EMP-002", department: "Operations", designation: "Operations Specialist", nationalId: "1000000002", bankName: "Al Rajhi Bank", iban: "SA0380000000608010167519", joiningDate: "2026-02-01", status: "ACTIVE" },
     payroll: { month: 6, year: 2026, period: "June 2026", reference: "PAY-2026-06-EMP-002-PREVIEW", batchNumber: "preview-payroll-upload-1", paymentDate: "2026-06-30", paymentMethod: "Bank Transfer", printedBy: req.user?.email },
     attendance: { payrollDays: 30, presentDays: 30, absentDays: 0, weeklyOffDays: 0, publicHolidays: 0, normalOvertimeHours: 0, holidayOvertimeHours: 0 },

@@ -1,6 +1,7 @@
 import { env } from "../config/env.js";
 import { prisma } from "../lib/prisma.js";
 import type { PayslipInput } from "./payslipRenderer.js";
+import { getPreviewCompanyProfile } from "./previewCompanyProfile.js";
 
 const fallbackCompany = {
   id: "default",
@@ -27,21 +28,7 @@ const fallbackCompany = {
 
 export async function getCurrentCompanyProfile() {
   if (env.HRMS_PREVIEW_MODE) {
-    return {
-      ...fallbackCompany,
-      companyName: "Demo Company",
-      companyNameArabic: "شركة تجريبية",
-      registrationNumber: "CR 1007552026",
-      vatNumber: "300000000000003",
-      address: "King Fahd Road",
-      phone: "+966 11 000 0000",
-      fax: "+966 11 000 0001",
-      email: "hr@company.sa",
-      website: "https://company.sa",
-      gosiNumber: "GOSI-1007552026",
-      qiwaReference: "QIWA-1007552026",
-      bankDetails: "Al Rajhi Bank - SA0380000000608010167519"
-    };
+    return { ...fallbackCompany, ...getPreviewCompanyProfile() };
   }
   return (await prisma.companyProfile.findUnique({ where: { id: "default" } })) ?? fallbackCompany;
 }
