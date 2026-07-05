@@ -40,7 +40,7 @@ router.use(requireAuth);
 router.get("/", async (_req, res) => {
   if (env.HRMS_PREVIEW_MODE) return res.json(getPreviewCompanyProfile());
   const profile = await prisma.companyProfile.findUnique({ where: { id: "default" } });
-  res.json(profile ?? { ...defaultPreviewCompanyProfile, companyName: "Saudi HRMS Company" });
+  res.json(profile ?? { ...defaultPreviewCompanyProfile, companyName: "Company HR Portal" });
 });
 
 router.put("/", requireRoles(Role.SUPER_ADMIN, Role.ADMIN, Role.HR_MANAGER), async (req, res, next) => {

@@ -3,13 +3,16 @@
 import { Eye, EyeOff, Languages, LogIn, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import type { PublicBranding } from "@/lib/publicBranding";
 
-export function LoginForm() {
+export function LoginForm({ branding }: { branding: PublicBranding }) {
   const router = useRouter();
   const params = useSearchParams();
   const [error, setError] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [language, setLanguage] = useState<"en" | "ar">("en");
+  const companyName = branding.companyName || "Company HR Portal";
+  const displayName = language === "ar" ? branding.companyNameArabic || companyName : companyName;
 
   async function onSubmit(formData: FormData) {
     setError("");
@@ -36,9 +39,11 @@ export function LoginForm() {
   return (
     <form action={onSubmit} className="auth-card">
       <div className="login-brand">
-        <div className="logo-mark"><ShieldCheck size={26} /></div>
+        <div className="logo-mark">
+          {branding.logoDataUrl ? <img src={branding.logoDataUrl} alt={`${companyName} logo`} /> : <ShieldCheck size={26} />}
+        </div>
         <div>
-          <h1 className="page-title">{language === "ar" ? "نظام الموارد البشرية السعودي" : "Saudi HRMS"}</h1>
+          <h1 className="page-title">{displayName}</h1>
           <p className="muted">{language === "ar" ? "تسجيل الدخول الآمن" : "Secure workforce, payroll, and compliance access."}</p>
         </div>
       </div>

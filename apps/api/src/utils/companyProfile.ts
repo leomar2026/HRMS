@@ -5,7 +5,7 @@ import { getPreviewCompanyProfile } from "./previewCompanyProfile.js";
 
 const fallbackCompany = {
   id: "default",
-  companyName: "Saudi HRMS Company",
+  companyName: "Company HR Portal",
   companyNameArabic: "",
   registrationNumber: "",
   vatNumber: "",

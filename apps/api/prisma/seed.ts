@@ -173,12 +173,12 @@ async function main() {
   await prisma.announcement.upsert({
     where: { id: "company-welcome-announcement" },
     update: {
-      title: "Welcome to Saudi HRMS",
+      title: "Welcome to Company Portal",
       body: "Employee self-service is now available for profile, attendance, leave, payslips, and company announcements."
     },
     create: {
       id: "company-welcome-announcement",
-      title: "Welcome to Saudi HRMS",
+      title: "Welcome to Company Portal",
       body: "Employee self-service is now available for profile, attendance, leave, payslips, and company announcements."
     }
   });

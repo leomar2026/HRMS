@@ -79,7 +79,7 @@ export function Sidebar({ branding }: { branding?: SidebarBranding }) {
     <aside className="sidebar">
       <div className="brand">
         {logoSrc ? <img src={logoSrc} alt={`${branding?.companyName ?? "Company"} logo`} /> : null}
-        <span>{branding?.companyName ?? "Saudi HRMS"}</span>
+        <span>{branding?.companyName ?? "Company HR Portal"}</span>
       </div>
       <nav className="nav">
         {sections.map((section) => (

@@ -28,6 +28,7 @@ import operationsManagerRoutes from "./routes/operationsManager.js";
 import draftRoutes from "./routes/drafts.js";
 import companyProfileRoutes from "./routes/companyProfile.js";
 import notificationAdminRoutes from "./routes/notificationAdmin.js";
+import publicRoutes from "./routes/public.js";
 
 export const app = express();
 
@@ -37,6 +38,7 @@ app.use(express.json({ limit: "5mb" }));
 app.use(morgan("combined"));
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
+app.use("/api/public", publicRoutes);
 app.use("/api/auth", authRoutes);
 if (env.HRMS_PREVIEW_MODE) {
   app.use("/api", previewRouter);

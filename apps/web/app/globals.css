@@ -89,6 +89,15 @@ textarea {
   color: white;
 }
 
+.logo-mark img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: 8px;
+  background: white;
+  padding: 4px;
+}
+
 .app-shell {
   min-height: 100vh;
   display: grid;
