@@ -1,6 +1,6 @@
 "use client";
 
-import { Send } from "lucide-react";
+import { Save, Send } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
@@ -88,13 +88,16 @@ export function LeaveWorkflowForm({ departmentId, steps }: { departmentId: strin
   }
 
   return (
-    <form action={save} className="actions">
+    <form action={save} className="workflow-card-form">
+      <div className="workflow-step-list">
       {steps.map((step) => (
-        <label className="check-row" key={step.stage}>
-          <input name={step.stage} type="checkbox" defaultChecked={step.active} /> {step.label}
+        <label className="workflow-step-toggle" key={step.stage}>
+          <input name={step.stage} type="checkbox" defaultChecked={step.active} />
+          <span>{step.label}</span>
         </label>
       ))}
-      <button className="button secondary" type="submit">Save Process</button>
+      </div>
+      <button className="button secondary workflow-save" type="submit"><Save size={16} /> Save Process</button>
       {message ? <span className={message.startsWith("Unable") || message.startsWith("Select") ? "status danger" : "status"}>{message}</span> : null}
     </form>
   );

@@ -52,47 +52,60 @@ export default async function NotificationAdminPage() {
     <>
       <div className="page-head">
         <div>
-          <h1 className="page-title">Leave Notifications</h1>
-          <p className="muted">Email templates, queued logs, failed notification retry, and leave workflow notification audit.</p>
+          <h1 className="page-title">Leave Approval Setup</h1>
+          <p className="muted">Department-wise approval routes for employee leave requests.</p>
         </div>
       </div>
 
-      <section className="panel">
-        <h2>Department Leave Approval Process</h2>
-        <p className="muted">Define which approval steps apply for each department. The leave request follows the employee department workflow.</p>
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr><th>Department</th><th>Approval Steps</th><th>Status</th></tr>
-            </thead>
-            <tbody>
-              {leaveWorkflows.departments.map((item) => {
-                const steps = item.workflow.steps?.length ? item.workflow.steps : leaveWorkflows.defaultSteps;
-                return (
-                  <tr key={item.department.id}>
-                    <td>{item.department.name}</td>
-                    <td><LeaveWorkflowForm departmentId={item.department.id} steps={steps} /></td>
-                    <td><span className="status">{steps.filter((step) => step.active).map((step) => step.label).join(" → ") || "Not configured"}</span></td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+      <section className="workflow-section">
+        <div className="workflow-toolbar">
+          <div>
+            <h2>Department Leave Approval Process</h2>
+            <p className="muted">Set the approval route for each department. Requests follow the employee department workflow.</p>
+          </div>
+          <span className="status">{leaveWorkflows.departments.length} Departments</span>
+        </div>
+
+        <div className="workflow-card-grid">
+          {leaveWorkflows.departments.map((item) => {
+            const steps = item.workflow.steps?.length ? item.workflow.steps : leaveWorkflows.defaultSteps;
+            const activeSteps = steps.filter((step) => step.active);
+            const initials = item.department.code.slice(0, 2).toUpperCase();
+
+            return (
+              <article className="workflow-card" key={item.department.id}>
+                <div className="workflow-card-head">
+                  <div className="workflow-avatar">{initials}</div>
+                  <div>
+                    <h3>{item.department.name}</h3>
+                    <p className="muted">{item.department.code} Department</p>
+                  </div>
+                </div>
+                <div className="workflow-route">
+                  <span className="workflow-route-label">Current route</span>
+                  <strong>{activeSteps.map((step) => step.label).join(" -> ") || "Not configured"}</strong>
+                </div>
+                <LeaveWorkflowForm departmentId={item.department.id} steps={steps} />
+              </article>
+            );
+          })}
         </div>
       </section>
 
-      <section className="panel grid">
-        <h2>Email Templates</h2>
-        {templates.map((template) => (
-          <article className="panel" key={template.id}>
-            <h3>{template.code}</h3>
-            <EmailTemplateForm code={template.code} subject={template.subject} body={template.body} />
-          </article>
-        ))}
-      </section>
+      <details className="panel notification-advanced">
+        <summary>Email Templates</summary>
+        <div className="grid">
+          {templates.map((template) => (
+            <article className="sub-panel" key={template.id}>
+              <h3>{template.code}</h3>
+              <EmailTemplateForm code={template.code} subject={template.subject} body={template.body} />
+            </article>
+          ))}
+        </div>
+      </details>
 
-      <section className="panel">
-        <h2>Email Logs</h2>
+      <details className="panel notification-advanced">
+        <summary>Email Logs</summary>
         <div className="table-wrap">
           <table>
             <thead>
@@ -115,7 +128,7 @@ export default async function NotificationAdminPage() {
             </tbody>
           </table>
         </div>
-      </section>
+      </details>
     </>
   );
 }
