@@ -20,7 +20,7 @@ type SidebarBranding = {
 };
 
 export function EmployeeSidebar({ branding }: { branding?: SidebarBranding }) {
-  const logoSrc = branding?.logoDataUrl ? `${branding.logoDataUrl}#v=${branding.logoVersion ?? 1}` : "";
+  const logoSrc = branding?.logoDataUrl ?? "";
 
   return (
     <aside className="sidebar">

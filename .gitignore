@@ -6,3 +6,4 @@ dist
 coverage
 *.log
 apps/api/prisma/dev.db
+apps/api/.preview

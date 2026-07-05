@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import path from "node:path";
+
 export type PreviewCompanyProfile = {
   id: string;
   companyName: string;
@@ -27,7 +30,7 @@ export type PreviewCompanyProfile = {
 export const defaultPreviewCompanyProfile: PreviewCompanyProfile = {
   id: "default",
   companyName: "Demo Company",
-  companyNameArabic: "شركة تجريبية",
+  companyNameArabic: "",
   registrationNumber: "CR 1007552026",
   vatNumber: "300000000000003",
   address: "King Fahd Road",
@@ -48,7 +51,24 @@ export const defaultPreviewCompanyProfile: PreviewCompanyProfile = {
   documentCompanyMode: "CURRENT"
 };
 
-let previewCompanyProfileState: PreviewCompanyProfile = { ...defaultPreviewCompanyProfile };
+const previewProfilePath = path.join(process.cwd(), ".preview", "company-profile.json");
+
+function readPreviewCompanyProfile() {
+  try {
+    if (!fs.existsSync(previewProfilePath)) return { ...defaultPreviewCompanyProfile };
+    const parsed = JSON.parse(fs.readFileSync(previewProfilePath, "utf8")) as Partial<PreviewCompanyProfile>;
+    return { ...defaultPreviewCompanyProfile, ...parsed };
+  } catch {
+    return { ...defaultPreviewCompanyProfile };
+  }
+}
+
+function writePreviewCompanyProfile(profile: PreviewCompanyProfile) {
+  fs.mkdirSync(path.dirname(previewProfilePath), { recursive: true });
+  fs.writeFileSync(previewProfilePath, JSON.stringify(profile, null, 2), "utf8");
+}
+
+let previewCompanyProfileState: PreviewCompanyProfile = readPreviewCompanyProfile();
 
 export function getPreviewCompanyProfile() {
   return previewCompanyProfileState;
@@ -56,5 +76,6 @@ export function getPreviewCompanyProfile() {
 
 export function updatePreviewCompanyProfile(profile: PreviewCompanyProfile) {
   previewCompanyProfileState = profile;
+  writePreviewCompanyProfile(profile);
   return previewCompanyProfileState;
 }
