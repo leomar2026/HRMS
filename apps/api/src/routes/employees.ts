@@ -63,6 +63,13 @@ const employeeSchema = z.object({
 
 const updateEmployeeSchema = employeeSchema.partial().omit({ password: true, role: true });
 
+const userRoleSchema = z.object({
+  role: z.nativeEnum(Role),
+  email: z.string().email().optional(),
+  password: z.string().min(8).optional(),
+  portalStatus: z.enum(["ACTIVE", "PENDING_FIRST_LOGIN", "PASSWORD_RESET_REQUIRED", "DISABLED"]).optional()
+});
+
 const querySchema = z.object({
   search: z.string().optional(),
   departmentId: z.string().optional(),
@@ -112,7 +119,7 @@ router.get("/", requireRoles(...privilegedRoles), async (req, res) => {
   const [items, total] = await Promise.all([
     prisma.employee.findMany({
       where,
-      include: { department: true, manager: true },
+      include: { department: true, manager: true, user: true },
       orderBy: { employeeCode: "asc" },
       skip: (query.page - 1) * query.pageSize,
       take: query.pageSize
@@ -158,7 +165,7 @@ router.get("/:id", requireRoles(...privilegedRoles), async (req, res, next) => {
   try {
     const employee = await prisma.employee.findUnique({
       where: { id: String(req.params.id) },
-      include: { department: true, manager: true, documents: true }
+      include: { department: true, manager: true, documents: true, user: true }
     });
     if (!employee) return res.status(404).json({ message: "Employee not found" });
     res.json(employee);
@@ -225,6 +232,46 @@ router.patch("/:id", requireRoles(...writeRoles), async (req, res, next) => {
     const employee = await prisma.employee.update({ where: { id }, data: body, include: { department: true } });
     await audit(req, "UPDATE", "Employee", id, { fields: Object.keys(body) }, previous, employee);
     res.json(employee);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.patch("/:id/user-role", requireRoles(Role.SUPER_ADMIN, Role.ADMIN, Role.HR_MANAGER), async (req, res, next) => {
+  try {
+    const id = String(req.params.id);
+    const body = userRoleSchema.parse(req.body);
+    const employee = await prisma.employee.findUnique({ where: { id }, include: { user: true } });
+    if (!employee) return res.status(404).json({ message: "Employee not found" });
+
+    const previous = employee.user;
+    const email = body.email ?? employee.email;
+    const user = await prisma.user.upsert({
+      where: { employeeId: id },
+      update: {
+        role: body.role,
+        email,
+        portalStatus: body.portalStatus ?? "ACTIVE",
+        ...(body.password
+          ? {
+              passwordHash: await bcrypt.hash(body.password, env.BCRYPT_ROUNDS),
+              forcePasswordChange: true,
+              passwordChangedAt: new Date()
+            }
+          : {})
+      },
+      create: {
+        email,
+        role: body.role,
+        employeeId: id,
+        portalStatus: body.portalStatus ?? (body.role === Role.EMPLOYEE ? "PENDING_FIRST_LOGIN" : "ACTIVE"),
+        passwordHash: await bcrypt.hash(body.password ?? crypto.randomUUID(), env.BCRYPT_ROUNDS),
+        forcePasswordChange: Boolean(body.password)
+      }
+    });
+
+    await audit(req, "ASSIGN_USER_ROLE", "Employee", id, { employeeCode: employee.employeeCode, role: body.role }, previous ?? undefined, user);
+    res.json({ ...employee, user });
   } catch (error) {
     next(error);
   }

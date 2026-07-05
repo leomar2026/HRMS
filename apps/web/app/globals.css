@@ -493,6 +493,20 @@ textarea {
   align-items: center;
 }
 
+.inline-form {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-width: 260px;
+}
+
+.inline-form select {
+  min-width: 112px;
+  padding: 7px 8px;
+  font-size: 12px;
+}
+
 .notice {
   border-left: 4px solid var(--accent);
   background: #fff7ed;

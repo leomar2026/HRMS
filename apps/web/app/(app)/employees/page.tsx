@@ -1,4 +1,5 @@
 import { BulkActionBar, RowActionMenu, TableToolbar } from "@/components/DataTableControls";
+import { EmployeeRoleForm } from "@/components/EmployeeRoleActions";
 import { apiFetch } from "@/lib/api";
 
 type Employee = {
@@ -11,6 +12,7 @@ type Employee = {
   status: string;
   leaveBalance: number;
   department: { name: string };
+  user?: { role: string; portalStatus: string } | null;
 };
 
 type EmployeeResponse = {
@@ -49,7 +51,7 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
       <BulkActionBar actions={[{ label: "Export employees", href: "/api/backend/employees/export.csv" }]} />
       <div className="table-wrap">
         <table>
-          <thead><tr><th><input aria-label="Select all employees" type="checkbox" /></th><th className="freeze-col">ID</th><th>Name</th><th>Email</th><th>Department</th><th>Job title</th><th>Leave</th><th>Status</th><th>Actions</th></tr></thead>
+          <thead><tr><th><input aria-label="Select all employees" type="checkbox" /></th><th className="freeze-col">ID</th><th>Name</th><th>Email</th><th>Department</th><th>Job title</th><th>User Role</th><th>Portal</th><th>Leave</th><th>Status</th><th>Actions</th></tr></thead>
           <tbody>
             {employees.map((employee) => (
               <tr key={employee.id}>
@@ -59,6 +61,8 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
                 <td>{employee.email}</td>
                 <td>{employee.department.name}</td>
                 <td>{employee.jobTitle}</td>
+                <td><EmployeeRoleForm employeeId={employee.id} currentRole={employee.user?.role} /></td>
+                <td><span className={employee.user ? "status" : "status warn"}>{employee.user?.portalStatus ?? "NO USER"}</span></td>
                 <td>{employee.leaveBalance}</td>
                 <td><span className="status">{employee.status}</span></td>
                 <td>

@@ -19,7 +19,8 @@ const employee = {
   jobTitle: "HRMS Administrator",
   status: "ACTIVE",
   leaveBalance: 21,
-  department: { id: "preview-dept-1", name: "Human Resources", code: "HR" }
+  department: { id: "preview-dept-1", name: "Human Resources", code: "HR" },
+  user: { id: "preview-admin", role: "ADMIN", portalStatus: "ACTIVE" }
 };
 
 const selfServiceEmployee = {
@@ -68,8 +69,9 @@ const omEmployee = {
 
 previewRouter.use(requireAuth);
 
-previewRouter.get("/employees", (_req, res) => res.json([employee]));
+previewRouter.get("/employees", (_req, res) => res.json({ items: [employee, { ...selfServiceEmployee, user: { id: "preview-employee-user", role: "EMPLOYEE", portalStatus: "ACTIVE" } }, { ...managerEmployee, user: { id: "preview-manager-user", role: "DEPARTMENT_MANAGER", portalStatus: "ACTIVE" } }, { ...omEmployee, user: { id: "preview-om-user", role: "OPERATIONS_MANAGER", portalStatus: "ACTIVE" } }], total: 4, page: 1, pageSize: 25 }));
 previewRouter.get("/employees/me", (_req, res) => res.json(employee));
+previewRouter.patch("/employees/:id/user-role", (req, res) => res.json({ id: req.params.id, user: { role: req.body.role, portalStatus: req.body.portalStatus ?? "ACTIVE" } }));
 
 previewRouter.get("/employee/me", (_req, res) => res.json(selfServiceEmployee));
 previewRouter.get("/employee/me/dashboard", (_req, res) => res.json({
