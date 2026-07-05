@@ -1,5 +1,6 @@
 import { ManagerSidebar } from "@/components/ManagerSidebar";
 import { Topbar } from "@/components/SessionControls";
+import { CompactTableEnhancer } from "@/components/CompactTableEnhancer";
 import { apiFetch } from "@/lib/api";
 
 type CompanyBranding = {
@@ -8,13 +9,22 @@ type CompanyBranding = {
   logoVersion?: number;
 };
 
+type CurrentUser = {
+  email?: string;
+  role?: string;
+  employee?: { firstName?: string; lastName?: string };
+};
+
 export default async function ManagerLayout({ children }: { children: React.ReactNode }) {
-  const branding = await apiFetch<CompanyBranding>("/company-profile");
+  const [branding, user] = await Promise.all([
+    apiFetch<CompanyBranding>("/company-profile"),
+    apiFetch<CurrentUser>("/auth/me")
+  ]);
 
   return (
     <div className="app-shell">
-      <ManagerSidebar branding={branding} />
-      <main className="content"><Topbar />{children}</main>
+      <ManagerSidebar branding={branding} role={user?.role} />
+      <main className="content"><Topbar user={user} />{children}<CompactTableEnhancer /></main>
     </div>
   );
 }

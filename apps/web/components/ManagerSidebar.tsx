@@ -1,13 +1,24 @@
-import Link from "next/link";
-import { CalendarClock, ClipboardCheck, FileClock, LayoutDashboard, Users } from "lucide-react";
+"use client";
 
-const links = [
-  { href: "/manager/dashboard", label: "Team Dashboard", icon: LayoutDashboard },
-  { href: "/manager/leave-approvals", label: "Pending Leave Approvals", icon: ClipboardCheck },
-  { href: "/om/leave-approvals", label: "OM Leave Approvals", icon: ClipboardCheck },
-  { href: "/manager/team-calendar", label: "Team Leave Calendar", icon: CalendarClock },
-  { href: "/manager/team-balances", label: "Team Leave Balances", icon: FileClock },
-  { href: "/employee/dashboard", label: "My Self-Service", icon: Users }
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { Bell, CalendarClock, ClipboardCheck, FileClock, LayoutDashboard, LogOut, Users } from "lucide-react";
+
+const managerLinks = [
+  { href: "/manager/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/manager/leave-approvals", label: "Team Leave Requests", icon: Users },
+  { href: "/manager/leave-approvals", label: "My Leave Approvals", icon: ClipboardCheck },
+  { href: "/manager/team-calendar", label: "Team Calendar", icon: CalendarClock },
+  { href: "/manager/team-balances", label: "Team Leave History", icon: FileClock },
+  { href: "/employee/notifications", label: "Notifications", icon: Bell }
+];
+
+const omLinks = [
+  { href: "/om/leave-approvals", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/om/leave-approvals", label: "Pending OM Approvals", icon: ClipboardCheck },
+  { href: "/manager/leave-approvals", label: "Team Leave Requests", icon: Users },
+  { href: "/manager/team-calendar", label: "Team Calendar", icon: CalendarClock },
+  { href: "/employee/notifications", label: "Notifications", icon: Bell }
 ];
 
 type SidebarBranding = {
@@ -16,25 +27,35 @@ type SidebarBranding = {
   logoVersion?: number;
 };
 
-export function ManagerSidebar({ branding }: { branding?: SidebarBranding }) {
+export function ManagerSidebar({ branding, role }: { branding?: SidebarBranding; role?: string }) {
+  const pathname = usePathname();
   const logoSrc = branding?.logoDataUrl ?? "";
+  const links = role === "OPERATIONS_MANAGER" ? omLinks : managerLinks;
+  async function logout() {
+    await fetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
+    localStorage.clear();
+    sessionStorage.clear();
+    window.location.replace("/login?loggedOut=1");
+  }
 
   return (
     <aside className="sidebar">
       <div className="brand">
         {logoSrc ? <img src={logoSrc} alt={`${branding?.companyName ?? "Company"} logo`} /> : null}
-        <span>{branding?.companyName ?? "Manager Portal"}</span>
       </div>
-      <nav className="nav">
+      <nav className="nav simple-nav">
         {links.map((link) => {
           const Icon = link.icon;
           return (
-            <Link key={link.href} href={link.href}>
-              <Icon size={18} />
+            <Link className={pathname === link.href ? "active" : ""} key={`${link.href}-${link.label}`} href={link.href}>
+              <Icon size={15} />
               {link.label}
             </Link>
           );
         })}
+        <button type="button" onClick={logout}>
+          <LogOut size={15} /> Logout
+        </button>
       </nav>
     </aside>
   );

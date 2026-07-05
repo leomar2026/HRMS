@@ -186,6 +186,46 @@ router.post("/logout", async (req, res, next) => {
   }
 });
 
+router.get("/me", requireAuth, async (req, res) => {
+  if (env.HRMS_PREVIEW_MODE) {
+    return res.json({
+      id: req.user?.id,
+      email: req.user?.email,
+      role: req.user?.role,
+      employeeId: req.user?.employeeId,
+      employee: req.user?.employeeId
+        ? {
+            id: req.user.employeeId,
+            firstName: req.user.email.split("@")[0],
+            lastName: "",
+            employeeCode: req.user.employeeId,
+            department: { name: req.user.role === Role.EMPLOYEE ? "Operations" : "Administration" }
+          }
+        : null
+    });
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: req.user?.id },
+    select: {
+      id: true,
+      email: true,
+      role: true,
+      employeeId: true,
+      employee: {
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          employeeCode: true,
+          department: { select: { name: true } }
+        }
+      }
+    }
+  });
+  res.json(user ?? req.user);
+});
+
 router.post("/forgot-password", async (req, res, next) => {
   try {
     const body = forgotPasswordSchema.parse(req.body);

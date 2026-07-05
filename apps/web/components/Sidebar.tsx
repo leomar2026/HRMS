@@ -1,70 +1,53 @@
+"use client";
+
 import Link from "next/link";
-import { Bell, Building2, CalendarClock, ClipboardCheck, Database, FileClock, FileInput, FileSpreadsheet, Gauge, KeyRound, Landmark, LayoutDashboard, ReceiptText, Users } from "lucide-react";
+import { usePathname } from "next/navigation";
+import {
+  BadgeDollarSign,
+  Banknote,
+  Bell,
+  BriefcaseBusiness,
+  Building2,
+  CalendarClock,
+  ChevronRight,
+  ClipboardCheck,
+  Database,
+  FileClock,
+  FileInput,
+  FileSpreadsheet,
+  Gauge,
+  Gavel,
+  Landmark,
+  LayoutDashboard,
+  Plane,
+  ReceiptText,
+  ShieldAlert,
+  UserMinus,
+  Users
+} from "lucide-react";
 
 const sections = [
-  {
-    title: "Dashboard",
-    links: [{ href: "/dashboard", label: "Dashboard", icon: LayoutDashboard }]
-  },
-  {
-    title: "HR Management",
-    links: [
-      { href: "/employees", label: "Employee Master", icon: Users },
-      { href: "/employee-import", label: "Employee Import", icon: FileInput },
-      { href: "/employee-export", label: "Employee Export", icon: FileSpreadsheet },
-      { href: "/group-management?type=EMPLOYEE", label: "Employee Groups", icon: Users },
-      { href: "/employee-document-expiry", label: "Documents & Expiry", icon: FileClock },
-      { href: "/employee-import-history", label: "Import History", icon: ClipboardCheck }
-    ]
-  },
-  {
-    title: "Organization Setup",
-    links: [
-      { href: "/departments", label: "Departments", icon: Building2 },
-      { href: "/company-profile", label: "Company Details", icon: Building2 },
-      { href: "/master-data", label: "Master Data", icon: Database }
-    ]
-  },
-  {
-    title: "Leave Management",
-    links: [
-      { href: "/leave", label: "Leave Requests", icon: FileClock },
-      { href: "/leave-balance-upload", label: "Leave Balances", icon: FileInput },
-      { href: "/group-management?type=LEAVE", label: "Leave Groups", icon: Users }
-    ]
-  },
-  {
-    title: "Attendance Management",
-    links: [{ href: "/attendance", label: "Attendance", icon: CalendarClock }]
-  },
-  {
-    title: "Payroll Management",
-    links: [
-      { href: "/payroll", label: "Payroll", icon: ReceiptText },
-      { href: "/payroll-upload", label: "Payroll Upload", icon: FileInput },
-      { href: "/group-management?type=PAYROLL", label: "Payroll Groups", icon: Users }
-    ]
-  },
-  {
-    title: "Government Integration",
-    links: [
-      { href: "/government-sync", label: "GOSI / Mudad / Qiwa", icon: Landmark },
-      { href: "/compliance", label: "Compliance", icon: Gauge }
-    ]
-  },
-  {
-    title: "Reports & Admin",
-    links: [
-      { href: "/reports", label: "Reports", icon: FileSpreadsheet },
-      { href: "/permissions", label: "Permissions", icon: KeyRound },
-      { href: "/admin-password-reset", label: "Password Reset", icon: KeyRound },
-      { href: "/notification-admin", label: "Leave Notifications", icon: Bell },
-      { href: "/group-management", label: "All Groups", icon: Users },
-      { href: "/announcements", label: "Announcements", icon: Bell },
-      { href: "/audit-logs", label: "Audit Logs", icon: ClipboardCheck }
-    ]
-  }
+  { title: "Dashboard", icon: LayoutDashboard, links: [{ href: "/dashboard", label: "Dashboard" }] },
+  { title: "Administration", icon: ShieldAlert, links: [{ href: "/permissions", label: "Permissions" }, { href: "/admin-password-reset", label: "Password Reset" }, { href: "/audit-logs", label: "Audit Logs" }] },
+  { title: "Masters", icon: Database, links: [{ href: "/company-profile", label: "Company Details" }, { href: "/departments", label: "Departments" }, { href: "/master-data", label: "Master Data" }] },
+  { title: "Employee Management", icon: Users, links: [{ href: "/employees", label: "Employees" }, { href: "/employee-import", label: "Employee Import" }, { href: "/employee-export", label: "Employee Export" }, { href: "/employee-document-expiry", label: "Documents & Expiry" }, { href: "/employee-import-history", label: "Import History" }] },
+  { title: "Time & Attendance", icon: CalendarClock, links: [{ href: "/attendance", label: "Attendance" }] },
+  { title: "Leave Management", icon: FileClock, links: [{ href: "/leave", label: "Leave Requests" }, { href: "/notification-admin", label: "Approval Setup" }, { href: "/group-management?type=LEAVE", label: "Leave Groups" }] },
+  { title: "Vacation Management", icon: FileInput, links: [{ href: "/leave-balance-upload", label: "Vacation Balances" }] },
+  { title: "Loans & Advances", icon: Banknote, links: [{ href: "/master-data", label: "Loan Settings" }] },
+  { title: "Travel Management", icon: Plane, links: [{ href: "/master-data", label: "Travel Settings" }] },
+  { title: "My HRMS", icon: Bell, links: [{ href: "/employee/dashboard", label: "Self Service" }, { href: "/announcements", label: "Announcements" }] },
+  { title: "Transfer Management", icon: BriefcaseBusiness, links: [{ href: "/group-management?type=EMPLOYEE", label: "Employee Groups" }] },
+  { title: "Payroll", icon: ReceiptText, links: [{ href: "/payroll", label: "Payroll" }, { href: "/payroll-upload", label: "Payroll Upload" }, { href: "/group-management?type=PAYROLL", label: "Payroll Groups" }] },
+  { title: "Recruitment Management", icon: ClipboardCheck, links: [{ href: "/master-data", label: "Recruitment Setup" }] },
+  { title: "Performance Appraisal", icon: Gauge, links: [{ href: "/reports", label: "Performance Reports" }] },
+  { title: "Government Affairs", icon: Landmark, links: [{ href: "/government-sync", label: "GOSI / Mudad / Qiwa" }, { href: "/compliance", label: "Compliance" }] },
+  { title: "Separation", icon: UserMinus, links: [{ href: "/employee-document-expiry", label: "Exit Documents" }] },
+  { title: "Disciplinary Actions", icon: Gavel, links: [{ href: "/audit-logs", label: "Action Logs" }] },
+  { title: "Reports", icon: FileSpreadsheet, links: [{ href: "/reports", label: "Reports" }] }
 ];
+
+const hrSections = sections.filter((section) => ["Dashboard", "Employee Management", "Leave Management", "Vacation Management", "Reports"].includes(section.title));
 
 type SidebarBranding = {
   companyName?: string;
@@ -72,30 +55,37 @@ type SidebarBranding = {
   logoVersion?: number;
 };
 
-export function Sidebar({ branding }: { branding?: SidebarBranding }) {
+export function Sidebar({ branding, role }: { branding?: SidebarBranding; role?: string }) {
+  const pathname = usePathname();
   const logoSrc = branding?.logoDataUrl ?? "";
+  const visibleSections = role && ["HR", "HR_MANAGER", "HR_OFFICER"].includes(role) ? hrSections : sections;
 
   return (
     <aside className="sidebar">
       <div className="brand">
-        {logoSrc ? <img src={logoSrc} alt={`${branding?.companyName ?? "Company"} logo`} /> : null}
-        <span>{branding?.companyName ?? "Company HR Portal"}</span>
+        {logoSrc ? <img src={logoSrc} alt={`${branding?.companyName ?? "Company"} logo`} /> : <Building2 size={34} />}
       </div>
       <nav className="nav">
-        {sections.map((section) => (
-          <div className="nav-section" key={section.title}>
-            <div className="nav-heading">{section.title}</div>
-            {section.links.map((link) => {
-              const Icon = link.icon;
-              return (
-                <Link key={`${section.title}-${link.href}-${link.label}`} href={link.href}>
-                  <Icon size={18} />
-                  {link.label}
-                </Link>
-              );
-            })}
-          </div>
-        ))}
+        {visibleSections.map((section) => {
+          const Icon = section.icon;
+          const open = section.links.some((link) => pathname === link.href.split("?")[0]);
+          return (
+            <details className="nav-group" key={section.title} open={open || section.title === "Dashboard"}>
+              <summary>
+                <Icon size={15} />
+                <span>{section.title}</span>
+                <ChevronRight className="nav-chevron" size={13} />
+              </summary>
+              <div className="nav-children">
+                {section.links.map((link) => (
+                  <Link className={pathname === link.href.split("?")[0] ? "active" : ""} key={`${section.title}-${link.href}-${link.label}`} href={link.href}>
+                    {link.label}
+                  </Link>
+                ))}
+              </div>
+            </details>
+          );
+        })}
       </nav>
     </aside>
   );

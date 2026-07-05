@@ -1,14 +1,12 @@
 "use client";
 
 import { LogOut, UserRound } from "lucide-react";
-import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
 const timeoutMs = 30 * 60 * 1000;
 const warningMs = 25 * 60 * 1000;
 
 export function SessionControls() {
-  const router = useRouter();
   const [warning, setWarning] = useState(false);
   const timers = useRef<Array<ReturnType<typeof setTimeout>>>([]);
 
@@ -38,7 +36,7 @@ export function SessionControls() {
   }, []);
 
   return (
-    <div className="topbar-actions">
+    <div className="profile-actions">
       <details className="row-actions">
         <summary><UserRound size={18} /><span>Profile</span></summary>
         <div className="row-menu">
@@ -60,21 +58,23 @@ export function SessionControls() {
   );
 }
 
-export function Topbar() {
-  function setScale(scale: string) {
-    document.documentElement.dataset.fontScale = scale;
-    localStorage.setItem("hrms_font_scale", scale);
-  }
+type TopbarUser = {
+  email?: string;
+  role?: string;
+  employee?: { firstName?: string; lastName?: string };
+};
 
+export function Topbar({ user }: { user?: TopbarUser | null }) {
+  const displayName = [user?.employee?.firstName, user?.employee?.lastName].filter(Boolean).join(" ") || user?.email || "User";
   return (
     <div className="topbar">
-      <span className="muted">Secure HRMS Session</span>
-      <div className="actions">
-        <select aria-label="Font scale" defaultValue="compact" onChange={(event) => setScale(event.target.value)}>
-          <option value="compact">Compact</option>
-          <option value="standard">Standard</option>
-          <option value="large">Large Accessibility</option>
+      <span className="system-title">HRMS - Human Resource Management</span>
+      <div className="topbar-actions">
+        <select className="language-select" aria-label="Language" defaultValue="English">
+          <option>English</option>
+          <option>Arabic</option>
         </select>
+        <span className="topbar-user">{displayName}</span>
         <SessionControls />
       </div>
     </div>
