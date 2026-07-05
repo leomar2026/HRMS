@@ -1,4 +1,4 @@
-import { EmailTemplateForm, ResendEmailButton } from "@/components/NotificationAdminActions";
+import { EmailTemplateForm, LeaveWorkflowForm, ResendEmailButton } from "@/components/NotificationAdminActions";
 import { apiFetch } from "@/lib/api";
 
 type EmailTemplate = {
@@ -22,10 +22,30 @@ type EmailLog = {
   createdAt: string;
 };
 
+type LeaveWorkflowStep = {
+  stage: string;
+  label: string;
+  active: boolean;
+};
+
+type LeaveWorkflowDepartment = {
+  department: { id: string; name: string; code: string };
+  workflow: {
+    id: string | null;
+    steps: LeaveWorkflowStep[];
+  };
+};
+
+type LeaveWorkflowResponse = {
+  defaultSteps: LeaveWorkflowStep[];
+  departments: LeaveWorkflowDepartment[];
+};
+
 export default async function NotificationAdminPage() {
-  const [templates, logs] = await Promise.all([
+  const [templates, logs, leaveWorkflows] = await Promise.all([
     apiFetch<EmailTemplate[]>("/notification-admin/email-templates"),
-    apiFetch<EmailLog[]>("/notification-admin/email-logs")
+    apiFetch<EmailLog[]>("/notification-admin/email-logs"),
+    apiFetch<LeaveWorkflowResponse>("/notification-admin/leave-workflows")
   ]);
 
   return (
@@ -36,6 +56,30 @@ export default async function NotificationAdminPage() {
           <p className="muted">Email templates, queued logs, failed notification retry, and leave workflow notification audit.</p>
         </div>
       </div>
+
+      <section className="panel">
+        <h2>Department Leave Approval Process</h2>
+        <p className="muted">Define which approval steps apply for each department. The leave request follows the employee department workflow.</p>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Department</th><th>Approval Steps</th><th>Status</th></tr>
+            </thead>
+            <tbody>
+              {leaveWorkflows.departments.map((item) => {
+                const steps = item.workflow.steps?.length ? item.workflow.steps : leaveWorkflows.defaultSteps;
+                return (
+                  <tr key={item.department.id}>
+                    <td>{item.department.name}</td>
+                    <td><LeaveWorkflowForm departmentId={item.department.id} steps={steps} /></td>
+                    <td><span className="status">{steps.filter((step) => step.active).map((step) => step.label).join(" → ") || "Not configured"}</span></td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </section>
 
       <section className="panel grid">
         <h2>Email Templates</h2>

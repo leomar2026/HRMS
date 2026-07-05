@@ -8,7 +8,7 @@ import { AppError } from "../middleware/error.js";
 import { audit } from "../utils/audit.js";
 import { renderPayslipPdf, type PayslipComponent } from "../utils/payslipRenderer.js";
 import { getCurrentCompanyProfile, payslipCompanyFromProfile } from "../utils/companyProfile.js";
-import { leaveStages, notifyLeaveAction } from "../utils/leaveWorkflow.js";
+import { findHrManagerUsers, findOmUsers, getLeaveApprovalWorkflow, initialStageForWorkflow, leaveStages, notifyLeaveAction, workflowStepForStage } from "../utils/leaveWorkflow.js";
 
 const router = Router();
 
@@ -167,6 +167,8 @@ router.post("/me/leaves", async (req, res, next) => {
     if (overlapping) throw new AppError(409, "An overlapping leave request already exists");
 
     const leave = await prisma.$transaction(async (tx) => {
+      const workflow = await getLeaveApprovalWorkflow(tx, employee.departmentId);
+      const initialStage = initialStageForWorkflow(workflow);
       const created = await tx.leaveRequest.create({
         data: {
           requestNumber: `LR-${Date.now()}`,
@@ -182,7 +184,7 @@ router.post("/me/leaves", async (req, res, next) => {
           emergencyContact: body.emergencyContact,
           attachmentName: body.attachmentName,
           availableBalanceAtRequest: employee.leaveBalance,
-          workflowStage: leaveStages.pendingManager
+          workflowStage: initialStage
         }
       });
       await tx.approvalHistory.create({
@@ -207,12 +209,13 @@ router.post("/me/leaves", async (req, res, next) => {
             employeeId,
             email: employee.email,
             title: "Leave request submitted",
-            message: `Your leave request ${created.requestNumber} has been submitted and is pending Manager approval.`,
+            message: `Your leave request ${created.requestNumber} has been submitted and is pending ${workflowStepForStage(initialStage, workflow)?.label ?? "approval"}.`,
             link: "/employee/leaves"
           }
         ]
       });
-      if (employee.managerId) {
+      const initialStep = workflowStepForStage(initialStage, workflow);
+      if (initialStep?.role === "DEPARTMENT_MANAGER" && employee.managerId) {
         const managerUser = await tx.user.findUnique({ where: { employeeId: employee.managerId } });
         await notifyLeaveAction(tx, {
           leave: { ...created, employee },
@@ -231,11 +234,47 @@ router.post("/me/leaves", async (req, res, next) => {
             }
           ]
         });
+      } else if (initialStep?.role === "OPERATIONS_MANAGER") {
+        const omUsers = await findOmUsers(tx, employee.departmentId);
+        await tx.leaveRequest.update({ where: { id: created.id }, data: { omApproverId: omUsers[0]?.employeeId } });
+        await notifyLeaveAction(tx, {
+          leave: { ...created, employee },
+          action: "PENDING_OM",
+          actorName: `${employee.firstName} ${employee.lastName}`,
+          actorRole: "Employee",
+          recipients: omUsers.map((user) => ({
+            keySuffix: `om-${user.id}`,
+            userId: user.id,
+            employeeId: user.employeeId,
+            email: user.email,
+            title: "OM leave approval pending",
+            message: `${employee.firstName} ${employee.lastName} submitted leave request ${created.requestNumber}.`,
+            link: "/om/leave-approvals"
+          }))
+        });
+      } else if (initialStep?.role === "HR_MANAGER") {
+        const hrUsers = await findHrManagerUsers(tx);
+        await tx.leaveRequest.update({ where: { id: created.id }, data: { hrApproverId: hrUsers[0]?.employeeId } });
+        await notifyLeaveAction(tx, {
+          leave: { ...created, employee },
+          action: "PENDING_HR_MANAGER",
+          actorName: `${employee.firstName} ${employee.lastName}`,
+          actorRole: "Employee",
+          recipients: hrUsers.map((user) => ({
+            keySuffix: `hr-${user.id}`,
+            userId: user.id,
+            employeeId: user.employeeId,
+            email: user.email,
+            title: "HR Manager leave approval pending",
+            message: `${employee.firstName} ${employee.lastName} submitted leave request ${created.requestNumber}.`,
+            link: "/leave"
+          }))
+        });
       }
       return created;
     });
 
-    await audit(req, "SUBMIT_LEAVE", "LeaveRequest", leave.id, { days, type: body.type, previousStatus: null, newStatus: leave.workflowStage });
+    await audit(req, "SUBMIT_LEAVE", "LeaveRequest", leave.id, { days, type: body.type, departmentId: employee.departmentId, previousStatus: null, newStatus: leave.workflowStage });
     res.status(201).json(leave);
   } catch (error) {
     next(error);
@@ -258,6 +297,8 @@ router.patch("/me/leaves/:id/resubmit", async (req, res, next) => {
     const days = daysBetween(startDate, endDate);
 
     const leave = await prisma.$transaction(async (tx) => {
+      const workflow = await getLeaveApprovalWorkflow(tx, existing.employee.departmentId);
+      const initialStage = initialStageForWorkflow(workflow);
       const updated = await tx.leaveRequest.update({
         where: { id },
         data: {
@@ -271,7 +312,7 @@ router.patch("/me/leaves/:id/resubmit", async (req, res, next) => {
           emergencyContact: body.emergencyContact ?? existing.emergencyContact,
           attachmentName: body.attachmentName ?? existing.attachmentName,
           status: ApprovalStatus.PENDING,
-          workflowStage: leaveStages.pendingManager,
+          workflowStage: initialStage,
           comments: null,
           decidedAt: null
         }
@@ -279,7 +320,10 @@ router.patch("/me/leaves/:id/resubmit", async (req, res, next) => {
       await tx.approvalHistory.create({
         data: { leaveRequestId: id, module: "Leave", entityId: id, status: ApprovalStatus.PENDING, comments: "Resubmitted after correction", actedBy: req.user?.id }
       });
-      const managerUser = existing.employee.managerId ? await tx.user.findUnique({ where: { employeeId: existing.employee.managerId } }) : null;
+      const initialStep = workflowStepForStage(initialStage, workflow);
+      const managerUser = initialStep?.role === "DEPARTMENT_MANAGER" && existing.employee.managerId ? await tx.user.findUnique({ where: { employeeId: existing.employee.managerId } }) : null;
+      const omUsers = initialStep?.role === "OPERATIONS_MANAGER" ? await findOmUsers(tx, existing.employee.departmentId) : [];
+      const hrUsers = initialStep?.role === "HR_MANAGER" ? await findHrManagerUsers(tx) : [];
       await notifyLeaveAction(tx, {
         leave: { ...updated, employee: existing.employee },
         action: "RESUBMITTED",
@@ -287,7 +331,9 @@ router.patch("/me/leaves/:id/resubmit", async (req, res, next) => {
         actorRole: "Employee",
         recipients: [
           { keySuffix: "employee", userId: req.user?.id, employeeId, email: existing.employee.email, title: "Leave request resubmitted", message: `Your leave request ${updated.requestNumber} has been resubmitted.`, link: "/employee/leaves" },
-          { keySuffix: "manager", userId: managerUser?.id, employeeId: existing.employee.managerId, email: managerUser?.email, title: "Leave approval pending", message: `${existing.employee.firstName} ${existing.employee.lastName} resubmitted ${updated.requestNumber}.`, link: "/manager/leave-approvals" }
+          { keySuffix: "manager", userId: managerUser?.id, employeeId: existing.employee.managerId, email: managerUser?.email, title: "Leave approval pending", message: `${existing.employee.firstName} ${existing.employee.lastName} resubmitted ${updated.requestNumber}.`, link: "/manager/leave-approvals" },
+          ...omUsers.map((user) => ({ keySuffix: `om-${user.id}`, userId: user.id, employeeId: user.employeeId, email: user.email, title: "OM leave approval pending", message: `${existing.employee.firstName} ${existing.employee.lastName} resubmitted ${updated.requestNumber}.`, link: "/om/leave-approvals" })),
+          ...hrUsers.map((user) => ({ keySuffix: `hr-${user.id}`, userId: user.id, employeeId: user.employeeId, email: user.email, title: "HR Manager leave approval pending", message: `${existing.employee.firstName} ${existing.employee.lastName} resubmitted ${updated.requestNumber}.`, link: "/leave" }))
         ].filter((recipient) => recipient.employeeId || recipient.userId)
       });
       return updated;

@@ -180,6 +180,7 @@ model Department {
   code      String     @unique
   employees Employee[]
   managedBy Employee[]  @relation("DepartmentManager")
+  approvalWorkflows ApprovalWorkflow[]
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
 }
@@ -558,10 +559,14 @@ model ApprovalWorkflow {
   id        String   @id @default(cuid())
   module    String
   name      String
+  departmentId String?
+  department Department? @relation(fields: [departmentId], references: [id])
   active    Boolean  @default(true)
   steps     Json
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([module, departmentId])
 }
 
 model ApprovalHistory {

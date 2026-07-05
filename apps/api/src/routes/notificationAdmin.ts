@@ -1,4 +1,4 @@
-import { Role } from "@prisma/client";
+import { Prisma, Role } from "@prisma/client";
 import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
@@ -6,6 +6,7 @@ import { requireAuth } from "../middleware/auth.js";
 import { requireRoles } from "../middleware/rbac.js";
 import { resendFailedEmailLog } from "../utils/leaveWorkflow.js";
 import { audit } from "../utils/audit.js";
+import { defaultLeaveWorkflowSteps } from "../utils/leaveWorkflow.js";
 
 const router = Router();
 
@@ -15,6 +16,15 @@ const templateSchema = z.object({
   body: z.string().min(2),
   active: z.boolean().optional()
 });
+
+const leaveWorkflowStepSchema = z.object({
+  stage: z.enum(["PENDING_MANAGER_APPROVAL", "PENDING_OM_APPROVAL", "PENDING_HR_MANAGER_APPROVAL"]),
+  active: z.boolean()
+});
+
+const leaveWorkflowSchema = z.object({
+  steps: z.array(leaveWorkflowStepSchema).min(1)
+}).refine((value) => value.steps.some((step) => step.active), "Select at least one approval step");
 
 router.use(requireAuth, requireRoles(Role.ADMIN, Role.SUPER_ADMIN, Role.HR_MANAGER));
 
@@ -62,6 +72,60 @@ router.post("/email-templates/:code/test", async (req, res, next) => {
 router.get("/email-logs", async (_req, res) => {
   const logs = await prisma.emailLog.findMany({ orderBy: { createdAt: "desc" }, take: 200 });
   res.json(logs);
+});
+
+router.get("/leave-workflows", async (_req, res) => {
+  const [departments, workflows] = await Promise.all([
+    prisma.department.findMany({ orderBy: { name: "asc" } }),
+    prisma.approvalWorkflow.findMany({ where: { module: "LEAVE" }, include: { department: true }, orderBy: { updatedAt: "desc" } })
+  ]);
+
+  res.json({
+    defaultSteps: defaultLeaveWorkflowSteps,
+    departments: departments.map((department) => {
+      const workflow = workflows.find((item) => item.departmentId === department.id);
+      return {
+        department,
+        workflow: workflow ?? {
+          id: null,
+          module: "LEAVE",
+          name: `${department.name} Leave Approval`,
+          departmentId: department.id,
+          active: true,
+          steps: defaultLeaveWorkflowSteps
+        }
+      };
+    })
+  });
+});
+
+router.put("/leave-workflows/:departmentId", async (req, res, next) => {
+  try {
+    const departmentId = String(req.params.departmentId);
+    const body = leaveWorkflowSchema.parse(req.body);
+    const department = await prisma.department.findUnique({ where: { id: departmentId } });
+    if (!department) return res.status(404).json({ message: "Department not found" });
+
+    const steps = defaultLeaveWorkflowSteps.map((step) => ({
+      ...step,
+      active: body.steps.find((item) => item.stage === step.stage)?.active ?? false
+    }));
+
+    const existing = await prisma.approvalWorkflow.findFirst({ where: { module: "LEAVE", departmentId } });
+    const workflow = existing
+      ? await prisma.approvalWorkflow.update({
+          where: { id: existing.id },
+          data: { name: `${department.name} Leave Approval`, active: true, steps: steps as Prisma.InputJsonValue }
+        })
+      : await prisma.approvalWorkflow.create({
+          data: { module: "LEAVE", name: `${department.name} Leave Approval`, departmentId, active: true, steps: steps as Prisma.InputJsonValue }
+        });
+
+    await audit(req, "UPSERT_LEAVE_APPROVAL_WORKFLOW", "ApprovalWorkflow", workflow.id, { departmentId, departmentName: department.name, steps });
+    res.json(workflow);
+  } catch (error) {
+    next(error);
+  }
 });
 
 router.post("/email-logs/:id/resend", async (req, res, next) => {

@@ -3,6 +3,12 @@ import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
 
+const defaultLeaveWorkflowSteps = [
+  { stage: "PENDING_MANAGER_APPROVAL", role: "DEPARTMENT_MANAGER", label: "Direct Manager", active: true },
+  { stage: "PENDING_OM_APPROVAL", role: "OPERATIONS_MANAGER", label: "Operations Manager", active: true },
+  { stage: "PENDING_HR_MANAGER_APPROVAL", role: "HR_MANAGER", label: "HR Manager", active: true }
+];
+
 async function main() {
   const department = await prisma.department.upsert({
     where: { code: "HR" },
@@ -49,6 +55,46 @@ async function main() {
     update: {},
     create: { code: "OPS", name: "Operations" }
   });
+
+  const approvalDepartments = [
+    { code: "PPS", name: "Power Protection - Pre Sales" },
+    { code: "PAS", name: "Power Protection - After Sales" },
+    { code: "LC", name: "Low Current" },
+    { code: "SAL", name: "Sales" },
+    { code: "FIN", name: "Finance" },
+    { code: "IT", name: "IT" },
+    { code: "ADM", name: "Administrative" }
+  ];
+
+  const allWorkflowDepartments = [department, staffDepartment];
+  for (const item of approvalDepartments) {
+    const seededDepartment = await prisma.department.upsert({
+      where: { code: item.code },
+      update: { name: item.name },
+      create: item
+    });
+    allWorkflowDepartments.push(seededDepartment);
+  }
+
+  for (const workflowDepartment of allWorkflowDepartments) {
+    const existing = await prisma.approvalWorkflow.findFirst({ where: { module: "LEAVE", departmentId: workflowDepartment.id } });
+    if (existing) {
+      await prisma.approvalWorkflow.update({
+        where: { id: existing.id },
+        data: { name: `${workflowDepartment.name} Leave Approval`, active: true }
+      });
+    } else {
+      await prisma.approvalWorkflow.create({
+        data: {
+          module: "LEAVE",
+          name: `${workflowDepartment.name} Leave Approval`,
+          departmentId: workflowDepartment.id,
+          active: true,
+          steps: defaultLeaveWorkflowSteps
+        }
+      });
+    }
+  }
 
   const managerEmployee = await prisma.employee.upsert({
     where: { employeeCode: "EMP-010" },

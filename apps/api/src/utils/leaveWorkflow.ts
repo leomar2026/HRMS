@@ -1,4 +1,4 @@
-import { ApprovalStatus, Prisma, Role } from "@prisma/client";
+import { ApprovalStatus, AttendanceStatus, LeaveType, Prisma, Role } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
 import type { Request } from "express";
 import { audit } from "./audit.js";
@@ -17,16 +17,88 @@ export const leaveStages = {
 } as const;
 
 export type WorkflowDecision = "APPROVE" | "REJECT" | "RETURN_FOR_CORRECTION";
+export type LeaveApprovalRole = "DEPARTMENT_MANAGER" | "OPERATIONS_MANAGER" | "HR_MANAGER";
+
+export type LeaveWorkflowStep = {
+  stage: string;
+  role: LeaveApprovalRole;
+  label: string;
+  active: boolean;
+};
+
+export const defaultLeaveWorkflowSteps: LeaveWorkflowStep[] = [
+  { stage: leaveStages.pendingManager, role: "DEPARTMENT_MANAGER", label: "Direct Manager", active: true },
+  { stage: leaveStages.pendingOm, role: "OPERATIONS_MANAGER", label: "Operations Manager", active: true },
+  { stage: leaveStages.pendingHr, role: "HR_MANAGER", label: "HR Manager", active: true }
+];
+
+function normalizeLeaveWorkflowSteps(steps: unknown): LeaveWorkflowStep[] {
+  if (!Array.isArray(steps)) return defaultLeaveWorkflowSteps;
+  const byStage = new Map(defaultLeaveWorkflowSteps.map((step) => [step.stage, step]));
+  return steps
+    .map((step) => {
+      if (!step || typeof step !== "object") return null;
+      const value = step as Partial<LeaveWorkflowStep>;
+      const fallback = value.stage ? byStage.get(value.stage) : undefined;
+      if (!fallback) return null;
+      return { ...fallback, active: value.active !== false };
+    })
+    .filter((step): step is LeaveWorkflowStep => Boolean(step));
+}
+
+export async function getLeaveApprovalWorkflow(tx: Tx, departmentId?: string | null) {
+  const workflow = departmentId
+    ? await tx.approvalWorkflow.findFirst({
+        where: { module: "LEAVE", departmentId, active: true },
+        include: { department: true },
+        orderBy: { updatedAt: "desc" }
+      })
+    : null;
+
+  return {
+    id: workflow?.id,
+    name: workflow?.name ?? "Default Leave Approval",
+    departmentId: workflow?.departmentId ?? departmentId ?? null,
+    departmentName: workflow?.department?.name,
+    steps: normalizeLeaveWorkflowSteps(workflow?.steps).filter((step) => step.active)
+  };
+}
+
+export function initialStageForWorkflow(workflow: Awaited<ReturnType<typeof getLeaveApprovalWorkflow>>) {
+  return workflow.steps[0]?.stage ?? leaveStages.finalApproved;
+}
 
 export function workflowStatusLabel(stage: string) {
   return stage.replace(/_/g, " ").toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
-export function nextStageForApproval(currentStage: string) {
-  if (currentStage === leaveStages.pendingManager) return leaveStages.pendingOm;
-  if (currentStage === leaveStages.pendingOm) return leaveStages.pendingHr;
-  if (currentStage === leaveStages.pendingHr) return leaveStages.finalApproved;
-  return currentStage;
+export function nextStageForApproval(currentStage: string, workflow?: Awaited<ReturnType<typeof getLeaveApprovalWorkflow>>) {
+  const steps = workflow?.steps?.length ? workflow.steps : defaultLeaveWorkflowSteps;
+  const currentIndex = steps.findIndex((step) => step.stage === currentStage);
+  if (currentIndex === -1) return currentStage;
+  return steps[currentIndex + 1]?.stage ?? leaveStages.finalApproved;
+}
+
+export function workflowStepForStage(stage: string, workflow?: Awaited<ReturnType<typeof getLeaveApprovalWorkflow>>) {
+  const steps = workflow?.steps?.length ? workflow.steps : defaultLeaveWorkflowSteps;
+  return steps.find((step) => step.stage === stage);
+}
+
+export async function applyFinalLeaveApproval(
+  tx: Tx,
+  leave: { employeeId: string; startDate: Date; days: number; type: LeaveType }
+) {
+  if (leave.type === LeaveType.ANNUAL) {
+    await tx.employee.update({ where: { id: leave.employeeId }, data: { leaveBalance: { decrement: leave.days } } });
+  }
+  await tx.attendance.createMany({
+    data: Array.from({ length: leave.days }).map((_, index) => {
+      const workDate = new Date(leave.startDate);
+      workDate.setDate(workDate.getDate() + index);
+      return { employeeId: leave.employeeId, workDate, status: AttendanceStatus.LEAVE, source: "LEAVE_APPROVAL" };
+    }),
+    skipDuplicates: true
+  });
 }
 
 export async function findOmUsers(tx: Tx, departmentId?: string) {

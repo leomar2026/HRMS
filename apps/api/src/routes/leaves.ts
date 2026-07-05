@@ -1,12 +1,12 @@
 import { Router } from "express";
-import { AttendanceStatus, LeaveType, Role } from "@prisma/client";
+import { LeaveType, Role } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { requireAuth } from "../middleware/auth.js";
 import { requireRoles } from "../middleware/rbac.js";
 import { AppError } from "../middleware/error.js";
 import { audit } from "../utils/audit.js";
-import { approvalStatusForDecision, leaveStages, notifyLeaveAction } from "../utils/leaveWorkflow.js";
+import { applyFinalLeaveApproval, approvalStatusForDecision, leaveStages, notifyLeaveAction } from "../utils/leaveWorkflow.js";
 
 const router = Router();
 
@@ -88,17 +88,7 @@ router.patch("/:id/decision", requireRoles(Role.ADMIN, Role.SUPER_ADMIN, Role.HR
           actedBy: req.user?.id
         }
       });
-      if (decision === "APPROVE" && leave.type === "ANNUAL") {
-        await tx.employee.update({ where: { id: leave.employeeId }, data: { leaveBalance: { decrement: leave.days } } });
-        await tx.attendance.createMany({
-          data: Array.from({ length: leave.days }).map((_, index) => {
-            const workDate = new Date(leave.startDate);
-            workDate.setDate(workDate.getDate() + index);
-            return { employeeId: leave.employeeId, workDate, status: AttendanceStatus.LEAVE, source: "LEAVE_APPROVAL" };
-          }),
-          skipDuplicates: true
-        });
-      }
+      if (decision === "APPROVE") await applyFinalLeaveApproval(tx, leave);
       const refreshedEmployee = await tx.employee.findUnique({ where: { id: leave.employeeId }, include: { department: true } });
       const managerUser = leave.managerId ? await tx.user.findUnique({ where: { employeeId: leave.managerId } }) : null;
       const omUser = leave.omApproverId ? await tx.user.findUnique({ where: { employeeId: leave.omApproverId } }) : null;

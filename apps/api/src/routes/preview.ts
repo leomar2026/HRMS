@@ -196,7 +196,13 @@ previewRouter.get("/employee/me/announcements", (_req, res) => res.json([
 previewRouter.get("/departments", (_req, res) => res.json([
   { id: "preview-dept-1", code: "HR", name: "Human Resources", _count: { employees: 1 } },
   { id: "preview-dept-2", code: "FIN", name: "Finance", _count: { employees: 0 } },
-  { id: "preview-dept-3", code: "OPS", name: "Operations", _count: { employees: 0 } }
+  { id: "preview-dept-3", code: "OPS", name: "Operations", _count: { employees: 0 } },
+  { id: "preview-dept-4", code: "PPS", name: "Power Protection - Pre Sales", _count: { employees: 0 } },
+  { id: "preview-dept-5", code: "PAS", name: "Power Protection - After Sales", _count: { employees: 0 } },
+  { id: "preview-dept-6", code: "LC", name: "Low Current", _count: { employees: 0 } },
+  { id: "preview-dept-7", code: "SAL", name: "Sales", _count: { employees: 0 } },
+  { id: "preview-dept-8", code: "IT", name: "IT", _count: { employees: 0 } },
+  { id: "preview-dept-9", code: "ADM", name: "Administrative", _count: { employees: 0 } }
 ]));
 
 previewRouter.get("/attendance", (_req, res) => res.json([
@@ -407,6 +413,49 @@ previewRouter.get("/notification-admin/email-logs", (_req, res) => res.json([
   { id: "email-log-1", notificationKey: "preview-email", recipient: "employee@company.com", subject: "Leave request submitted", templateCode: "LEAVE_SUBMITTED", leaveRequestNumber: "LR-PREVIEW-001", status: "PENDING", createdAt: new Date().toISOString() }
 ]));
 previewRouter.post("/notification-admin/email-logs/:id/resend", (req, res) => res.json({ id: req.params.id, status: "PENDING", retryCount: 1 }));
+const previewLeaveWorkflowSteps = [
+  { stage: "PENDING_MANAGER_APPROVAL", role: "DEPARTMENT_MANAGER", label: "Direct Manager", active: true },
+  { stage: "PENDING_OM_APPROVAL", role: "OPERATIONS_MANAGER", label: "Operations Manager", active: true },
+  { stage: "PENDING_HR_MANAGER_APPROVAL", role: "HR_MANAGER", label: "HR Manager", active: true }
+];
+const previewWorkflowDepartments = [
+  { id: "preview-dept-1", code: "HR", name: "Human Resources" },
+  { id: "preview-dept-2", code: "FIN", name: "Finance" },
+  { id: "preview-dept-3", code: "OPS", name: "Operations" },
+  { id: "preview-dept-4", code: "PPS", name: "Power Protection - Pre Sales" },
+  { id: "preview-dept-5", code: "PAS", name: "Power Protection - After Sales" },
+  { id: "preview-dept-6", code: "LC", name: "Low Current" },
+  { id: "preview-dept-7", code: "SAL", name: "Sales" },
+  { id: "preview-dept-8", code: "IT", name: "IT" },
+  { id: "preview-dept-9", code: "ADM", name: "Administrative" }
+];
+const previewLeaveWorkflowState = new Map(previewWorkflowDepartments.map((department) => [
+  department.id,
+  previewLeaveWorkflowSteps.map((step) => ({ ...step }))
+]));
+previewRouter.get("/notification-admin/leave-workflows", (_req, res) => res.json({
+  defaultSteps: previewLeaveWorkflowSteps,
+  departments: previewWorkflowDepartments.map((department) => ({
+    department,
+    workflow: {
+      id: `preview-workflow-${department.id}`,
+      module: "LEAVE",
+      name: `${department.name} Leave Approval`,
+      departmentId: department.id,
+      active: true,
+      steps: previewLeaveWorkflowState.get(department.id) ?? previewLeaveWorkflowSteps
+    }
+  }))
+}));
+previewRouter.put("/notification-admin/leave-workflows/:departmentId", (req, res) => {
+  const departmentId = String(req.params.departmentId);
+  const steps = previewLeaveWorkflowSteps.map((step) => ({
+    ...step,
+    active: Boolean(req.body.steps?.find((item: { stage: string; active: boolean }) => item.stage === step.stage)?.active)
+  }));
+  previewLeaveWorkflowState.set(departmentId, steps);
+  res.json({ id: `preview-workflow-${departmentId}`, module: "LEAVE", departmentId, active: true, steps });
+});
 
 const payrollUploadBatch = {
   id: "preview-payroll-upload-1",

@@ -6,7 +6,7 @@ import { requireAuth } from "../middleware/auth.js";
 import { requireRoles } from "../middleware/rbac.js";
 import { AppError } from "../middleware/error.js";
 import { audit } from "../utils/audit.js";
-import { approvalStatusForDecision, findHrManagerUsers, leaveStages, notifyLeaveAction, nextStageForApproval } from "../utils/leaveWorkflow.js";
+import { applyFinalLeaveApproval, approvalStatusForDecision, findHrManagerUsers, getLeaveApprovalWorkflow, leaveStages, notifyLeaveAction, nextStageForApproval, workflowStepForStage } from "../utils/leaveWorkflow.js";
 
 const router = Router();
 
@@ -48,15 +48,17 @@ router.patch("/leave-approvals/:id/decision", async (req, res, next) => {
       throw new AppError(403, "Leave request is outside your OM approval scope");
     }
 
-    const nextStage = body.decision === "APPROVE" ? nextStageForApproval(leave.workflowStage) : body.decision === "REJECT" ? leaveStages.rejected : leaveStages.returned;
-    const nextStatus = approvalStatusForDecision(body.decision);
-
     const updated = await prisma.$transaction(async (tx) => {
-      const hrUsers = body.decision === "APPROVE" ? await findHrManagerUsers(tx) : [];
+      const workflow = await getLeaveApprovalWorkflow(tx, leave.employee.departmentId);
+      const nextStage = body.decision === "APPROVE" ? nextStageForApproval(leave.workflowStage, workflow) : body.decision === "REJECT" ? leaveStages.rejected : leaveStages.returned;
+      const nextStep = workflowStepForStage(nextStage, workflow);
+      const nextStatus = approvalStatusForDecision(body.decision, nextStage === leaveStages.finalApproved);
+      const hrUsers = body.decision === "APPROVE" && nextStep?.role === "HR_MANAGER" ? await findHrManagerUsers(tx) : [];
       const result = await tx.leaveRequest.update({
         where: { id },
         data: { workflowStage: nextStage, status: nextStatus, comments: body.comments, approvedBy: req.user?.id, decidedAt: new Date(), hrApproverId: hrUsers[0]?.employeeId }
       });
+      if (body.decision === "APPROVE" && nextStage === leaveStages.finalApproved) await applyFinalLeaveApproval(tx, leave);
       await tx.approvalHistory.create({
         data: { leaveRequestId: id, module: "Leave", entityId: id, status: nextStatus, comments: body.comments ?? "OM approved", actedBy: req.user?.id }
       });
@@ -72,12 +74,12 @@ router.patch("/leave-approvals/:id/decision", async (req, res, next) => {
             employeeId: leave.employeeId,
             email: leave.employee.email,
             title: body.decision === "APPROVE" ? "Leave approved by OM" : `Leave ${body.decision.toLowerCase().replace(/_/g, " ")}`,
-            message: body.decision === "APPROVE" ? `Your leave request ${leave.requestNumber} has been approved by OM and is pending HR Manager approval.` : `OM decision recorded for ${leave.requestNumber}.`,
+            message: body.decision === "APPROVE" ? `Your leave request ${leave.requestNumber} has been approved by OM${nextStep ? ` and is pending ${nextStep.label} approval` : " and is Final Approved"}.` : `OM decision recorded for ${leave.requestNumber}.`,
             link: "/employee/leaves"
           }
         ]
       });
-      if (body.decision === "APPROVE") {
+      if (body.decision === "APPROVE" && hrUsers.length) {
         await notifyLeaveAction(tx, {
           leave: { ...result, employee: leave.employee },
           action: "PENDING_HR_MANAGER",
@@ -97,7 +99,7 @@ router.patch("/leave-approvals/:id/decision", async (req, res, next) => {
       return result;
     });
 
-    await audit(req, `OM_${body.decision}`, "LeaveRequest", id, { previousStatus: leave.workflowStage, newStatus: nextStage, comments: body.comments });
+    await audit(req, `OM_${body.decision}`, "LeaveRequest", id, { previousStatus: leave.workflowStage, newStatus: updated.workflowStage, comments: body.comments });
     res.json(updated);
   } catch (error) {
     next(error);
