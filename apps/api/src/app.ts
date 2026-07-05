@@ -1,0 +1,64 @@
+import express from "express";
+import cors from "cors";
+import helmet from "helmet";
+import morgan from "morgan";
+import { env } from "./config/env.js";
+import authRoutes from "./routes/auth.js";
+import employeeRoutes from "./routes/employees.js";
+import departmentRoutes from "./routes/departments.js";
+import attendanceRoutes from "./routes/attendance.js";
+import leaveRoutes from "./routes/leaves.js";
+import payrollRoutes from "./routes/payroll.js";
+import complianceRoutes from "./routes/compliance.js";
+import governmentRoutes from "./routes/government.js";
+import auditLogRoutes from "./routes/auditLogs.js";
+import { errorHandler, notFound } from "./middleware/error.js";
+import { previewRouter } from "./routes/preview.js";
+import employeeSelfServiceRoutes from "./routes/employeeSelfService.js";
+import permissionRoutes from "./routes/permissions.js";
+import masterDataRoutes from "./routes/masterData.js";
+import reportRoutes from "./routes/reports.js";
+import announcementRoutes from "./routes/announcements.js";
+import payrollUploadRoutes from "./routes/payrollUploads.js";
+import leaveBalanceUploadRoutes from "./routes/leaveBalanceUploads.js";
+import employeeImportRoutes from "./routes/employeeImports.js";
+import groupRoutes from "./routes/groups.js";
+import managerRoutes from "./routes/manager.js";
+import draftRoutes from "./routes/drafts.js";
+import companyProfileRoutes from "./routes/companyProfile.js";
+
+export const app = express();
+
+app.use(helmet());
+app.use(cors({ origin: env.CORS_ORIGIN, credentials: true }));
+app.use(express.json({ limit: "5mb" }));
+app.use(morgan("combined"));
+
+app.get("/health", (_req, res) => res.json({ ok: true }));
+app.use("/api/auth", authRoutes);
+if (env.HRMS_PREVIEW_MODE) {
+  app.use("/api", previewRouter);
+}
+app.use("/api/employee", employeeSelfServiceRoutes);
+app.use("/api/manager", managerRoutes);
+app.use("/api/drafts", draftRoutes);
+app.use("/api/company-profile", companyProfileRoutes);
+app.use("/api/employees", employeeRoutes);
+app.use("/api/departments", departmentRoutes);
+app.use("/api/attendance", attendanceRoutes);
+app.use("/api/leaves", leaveRoutes);
+app.use("/api/payroll", payrollRoutes);
+app.use("/api/compliance", complianceRoutes);
+app.use("/api/government", governmentRoutes);
+app.use("/api/audit-logs", auditLogRoutes);
+app.use("/api/permissions", permissionRoutes);
+app.use("/api/master-data", masterDataRoutes);
+app.use("/api/reports", reportRoutes);
+app.use("/api/announcements", announcementRoutes);
+app.use("/api/payroll-uploads", payrollUploadRoutes);
+app.use("/api/leave-balance-uploads", leaveBalanceUploadRoutes);
+app.use("/api/employee-imports", employeeImportRoutes);
+app.use("/api/groups", groupRoutes);
+
+app.use(notFound);
+app.use(errorHandler);

@@ -1,0 +1,643 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+  HR_MANAGER
+  HR_OFFICER
+  HR
+  PAYROLL_OFFICER
+  ACCOUNTANT
+  FINANCE
+  DEPARTMENT_MANAGER
+  EMPLOYEE
+  AUDITOR
+}
+
+enum EmploymentStatus {
+  ACTIVE
+  ON_LEAVE
+  INACTIVE
+  RESIGNED
+  TERMINATED
+  SUSPENDED
+  EXPIRED_CONTRACT
+  ARCHIVED
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  LEAVE
+}
+
+enum LeaveType {
+  ANNUAL
+  SICK
+  EMERGENCY
+  UNPAID
+  MATERNITY
+  PATERNITY
+  HAJJ
+  MARRIAGE
+  BEREAVEMENT
+  COMPENSATORY
+  CUSTOM
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  RETURNED_FOR_CORRECTION
+  CANCELLED
+}
+
+enum PayrollStatus {
+  DRAFT
+  APPROVED
+  EXPORTED
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  role         Role     @default(EMPLOYEE)
+  employeeId   String?  @unique
+  employee     Employee? @relation(fields: [employeeId], references: [id])
+  notifications Notification[]
+  portalStatus String   @default("ACTIVE")
+  failedLoginAttempts Int @default(0)
+  lockedUntil  DateTime?
+  forcePasswordChange Boolean @default(false)
+  passwordChangedAt DateTime @default(now())
+  passwordHistory Json?
+  sessions     UserSession[]
+  resetTokens  PasswordResetToken[]
+  portalOtps   PortalOtp[]
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model LoginAttempt {
+  id        String   @id @default(cuid())
+  username  String
+  userId    String?
+  result    String
+  reason    String?
+  ipAddress String?
+  device    String?
+  createdAt DateTime @default(now())
+}
+
+model UserSession {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id])
+  tokenId      String   @unique
+  device       String?
+  ipAddress    String?
+  lastSeenAt   DateTime @default(now())
+  expiresAt    DateTime
+  revokedAt    DateTime?
+  createdAt    DateTime @default(now())
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  tokenHash String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+}
+
+model PortalOtp {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  purpose   String
+  otpHash   String
+  attempts  Int      @default(0)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+}
+
+model FormDraft {
+  id        String   @id @default(cuid())
+  userId    String?
+  module    String
+  draftKey  String
+  data      Json
+  status    String   @default("DRAFT")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, module, draftKey])
+}
+
+model CompanyProfile {
+  id                 String   @id @default("default")
+  companyName        String
+  companyNameArabic  String?
+  registrationNumber String?
+  vatNumber          String?
+  address            String?
+  city               String?
+  country            String?  @default("Saudi Arabia")
+  phone              String?
+  fax                String?
+  email              String?
+  website            String?
+  gosiNumber         String?
+  qiwaReference      String?
+  bankDetails        String?
+  authorizedSignatory String?
+  companyStampDataUrl String?
+  letterheadSettings Json?
+  logoDataUrl        String?
+  logoVersion        Int      @default(1)
+  documentCompanyMode String   @default("CURRENT")
+  updatedBy          String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+model Department {
+  id        String     @id @default(cuid())
+  name      String     @unique
+  code      String     @unique
+  employees Employee[]
+  managedBy Employee[]  @relation("DepartmentManager")
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+}
+
+model Employee {
+  id                 String           @id @default(cuid())
+  employeeCode       String           @unique
+  nationalId         String           @unique
+  firstName          String
+  lastName           String
+  fullNameArabic     String?
+  nationality        String?
+  gender             String?
+  dateOfBirth        DateTime?
+  maritalStatus      String?
+  religion           String?
+  email              String           @unique
+  companyEmail       String?
+  phone              String?
+  emergencyContact   String?
+  address            String?
+  passportNumber     String?
+  iqamaExpiryDate    DateTime?
+  passportExpiryDate DateTime?
+  visaDetails        String?
+  visaExpiryDate     DateTime?
+  workPermitDetails  String?
+  gosiNumber         String?
+  qiwaReference      String?
+  bankName           String?
+  iban               String?
+  jobTitle           String
+  branch             String?
+  location           String?
+  managerId          String?
+  manager            Employee?        @relation("EmployeeManager", fields: [managerId], references: [id])
+  directReports      Employee[]       @relation("EmployeeManager")
+  employeeType       String?
+  contractType       String?
+  contractExpiryDate DateTime?
+  probationStartDate DateTime?
+  probationEndDate   DateTime?
+  medicalInsuranceExpiryDate DateTime?
+  drivingLicenseExpiryDate DateTime?
+  photoUrl           String?
+  joiningDate        DateTime
+  status             EmploymentStatus @default(ACTIVE)
+  basicSalary        Decimal          @db.Decimal(12, 2)
+  housingAllowance   Decimal          @db.Decimal(12, 2) @default(0)
+  transportAllowance Decimal          @db.Decimal(12, 2) @default(0)
+  otherAllowance     Decimal          @db.Decimal(12, 2) @default(0)
+  leaveBalance       Int              @default(21)
+  departmentId       String
+  department         Department       @relation(fields: [departmentId], references: [id])
+  managedDepartments Department[]     @relation("DepartmentManager")
+  user               User?
+  attendance         Attendance[]
+  leaves             LeaveRequest[]
+  managedLeaveRequests LeaveRequest[] @relation("LeaveManager")
+  notifications      Notification[]
+  payrollItems       PayrollItem[]
+  uploadedPayrollItems PayrollUploadItem[]
+  uploadedLeaveBalances LeaveBalanceUploadItem[]
+  importRows         EmployeeImportRow[]
+  groupMemberships   GroupMember[]
+  documents          EmployeeDocument[]
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  archivedAt         DateTime?
+}
+
+model Attendance {
+  id            String           @id @default(cuid())
+  employeeId    String
+  employee      Employee         @relation(fields: [employeeId], references: [id])
+  workDate      DateTime
+  checkIn       DateTime?
+  checkOut      DateTime?
+  lateMinutes   Int              @default(0)
+  overtimeHours Decimal          @db.Decimal(8, 2) @default(0)
+  status        AttendanceStatus @default(PRESENT)
+  source        String           @default("MANUAL")
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  @@unique([employeeId, workDate])
+}
+
+model LeaveRequest {
+  id          String         @id @default(cuid())
+  requestNumber String       @unique @default(cuid())
+  employeeId  String
+  employee    Employee       @relation(fields: [employeeId], references: [id])
+  managerId   String?
+  manager     Employee?      @relation("LeaveManager", fields: [managerId], references: [id])
+  type        LeaveType
+  startDate   DateTime
+  endDate     DateTime
+  days        Int
+  reason      String?
+  contactNumber String?
+  leaveAddress String?
+  emergencyContact String?
+  attachmentName String?
+  availableBalanceAtRequest Int?
+  workflowStage String      @default("PENDING_MANAGER_APPROVAL")
+  comments    String?
+  status      ApprovalStatus @default(PENDING)
+  approvedBy  String?
+  decidedAt   DateTime?
+  approvalHistory ApprovalHistory[]
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+}
+
+model PayrollRun {
+  id          String        @id @default(cuid())
+  month       Int
+  year        Int
+  status      PayrollStatus @default(DRAFT)
+  approvedBy  String?
+  approvedAt  DateTime?
+  items       PayrollItem[]
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@unique([month, year])
+}
+
+model PayrollItem {
+  id                 String     @id @default(cuid())
+  payrollRunId       String
+  payrollRun         PayrollRun @relation(fields: [payrollRunId], references: [id])
+  employeeId         String
+  employee           Employee   @relation(fields: [employeeId], references: [id])
+  basicSalary        Decimal    @db.Decimal(12, 2)
+  housingAllowance   Decimal    @db.Decimal(12, 2)
+  transportAllowance Decimal    @db.Decimal(12, 2)
+  otherAllowance     Decimal    @db.Decimal(12, 2)
+  overtime           Decimal    @db.Decimal(12, 2) @default(0)
+  absenceDeduction   Decimal    @db.Decimal(12, 2) @default(0)
+  loanDeduction      Decimal    @db.Decimal(12, 2) @default(0)
+  gosiDeduction      Decimal    @db.Decimal(12, 2) @default(0)
+  netSalary          Decimal    @db.Decimal(12, 2)
+
+  @@unique([payrollRunId, employeeId])
+}
+
+model PayrollUploadBatch {
+  id             String   @id @default(cuid())
+  month          Int
+  year           Int
+  company        String
+  branch         String?
+  departmentId   String?
+  payrollType    String
+  paymentDate    DateTime
+  status         String   @default("DRAFT")
+  originalFileName String?
+  revisionNumber Int      @default(1)
+  submittedAt    DateTime?
+  approvedAt     DateTime?
+  publishedAt    DateTime?
+  lockedAt        DateTime?
+  approvalComments String?
+  approvalHistory Json?
+  items          PayrollUploadItem[]
+  createdBy      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  archivedAt     DateTime?
+
+  @@unique([month, year, company, branch, payrollType, revisionNumber])
+}
+
+model PayrollUploadItem {
+  id                    String   @id @default(cuid())
+  batchId               String
+  batch                 PayrollUploadBatch @relation(fields: [batchId], references: [id])
+  employeeId            String
+  employee              Employee @relation(fields: [employeeId], references: [id])
+  employeeCode          String
+  employeeName          String
+  department            String?
+  jobTitle              String?
+  payrollPeriod         String
+  basicSalary           Decimal  @db.Decimal(12, 2)
+  housingAllowance      Decimal  @db.Decimal(12, 2) @default(0)
+  transportAllowance    Decimal  @db.Decimal(12, 2) @default(0)
+  otherAllowance        Decimal  @db.Decimal(12, 2) @default(0)
+  overtime              Decimal  @db.Decimal(12, 2) @default(0)
+  bonus                 Decimal  @db.Decimal(12, 2) @default(0)
+  commission            Decimal  @db.Decimal(12, 2) @default(0)
+  leaveDeduction        Decimal  @db.Decimal(12, 2) @default(0)
+  unpaidLeaveDeduction  Decimal  @db.Decimal(12, 2) @default(0)
+  loanDeduction         Decimal  @db.Decimal(12, 2) @default(0)
+  advanceDeduction      Decimal  @db.Decimal(12, 2) @default(0)
+  gosiDeduction         Decimal  @db.Decimal(12, 2) @default(0)
+  otherDeduction        Decimal  @db.Decimal(12, 2) @default(0)
+  grossSalary           Decimal  @db.Decimal(12, 2)
+  totalDeduction        Decimal  @db.Decimal(12, 2)
+  netSalary             Decimal  @db.Decimal(12, 2)
+  bankName              String?
+  iban                  String?
+  paymentDate           DateTime
+  remarks               String?
+  documentReference     String   @unique
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@unique([batchId, employeeId])
+}
+
+model LeaveBalanceUploadBatch {
+  id             String   @id @default(cuid())
+  company        String
+  branch         String?
+  leaveYear      Int
+  leaveType      LeaveType
+  status         String   @default("DRAFT")
+  originalFileName String?
+  revisionNumber Int      @default(1)
+  submittedAt    DateTime?
+  approvedAt     DateTime?
+  publishedAt    DateTime?
+  approvalComments String?
+  approvalHistory Json?
+  items          LeaveBalanceUploadItem[]
+  createdBy      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  archivedAt     DateTime?
+
+  @@unique([company, branch, leaveYear, leaveType, revisionNumber])
+}
+
+model LeaveBalanceUploadItem {
+  id                  String   @id @default(cuid())
+  batchId             String
+  batch               LeaveBalanceUploadBatch @relation(fields: [batchId], references: [id])
+  employeeId          String
+  employee            Employee @relation(fields: [employeeId], references: [id])
+  employeeCode        String
+  employeeName        String
+  department          String?
+  leaveType           LeaveType
+  leaveYear           Int
+  openingBalance      Decimal  @db.Decimal(8, 2) @default(0)
+  accruedLeave        Decimal  @db.Decimal(8, 2) @default(0)
+  usedLeave           Decimal  @db.Decimal(8, 2) @default(0)
+  pendingLeave        Decimal  @db.Decimal(8, 2) @default(0)
+  carriedForwardBalance Decimal @db.Decimal(8, 2) @default(0)
+  encashmentBalance   Decimal  @db.Decimal(8, 2) @default(0)
+  adjustmentBalance   Decimal  @db.Decimal(8, 2) @default(0)
+  finalAvailableBalance Decimal @db.Decimal(8, 2)
+  carryForwardExpiryDate DateTime?
+  remarks             String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@unique([batchId, employeeId, leaveType, leaveYear])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  action    String
+  entity    String
+  entityId  String?
+  previousValue Json?
+  newValue Json?
+  device    String?
+  metadata  Json?
+  ipAddress String?
+  createdAt DateTime @default(now())
+}
+
+model Announcement {
+  id          String   @id @default(cuid())
+  title       String
+  body        String
+  publishedAt DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model RolePermission {
+  id                         String   @id @default(cuid())
+  role                       Role
+  module                     String
+  canView                    Boolean  @default(false)
+  canAdd                     Boolean  @default(false)
+  canEdit                    Boolean  @default(false)
+  canDelete                  Boolean  @default(false)
+  canApprove                 Boolean  @default(false)
+  canReject                  Boolean  @default(false)
+  canPrint                   Boolean  @default(false)
+  canExportExcel             Boolean  @default(false)
+  canExportPdf               Boolean  @default(false)
+  canAccessConfidentialSalary Boolean @default(false)
+  canAccessEmployeeDocuments Boolean  @default(false)
+  canAccessGovernmentIntegrations Boolean @default(false)
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
+
+  @@unique([role, module])
+}
+
+model EmployeeDocument {
+  id          String   @id @default(cuid())
+  employeeId  String
+  employee    Employee @relation(fields: [employeeId], references: [id])
+  documentType String
+  fileName    String
+  fileUrl     String?
+  expiryDate  DateTime?
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  archivedAt  DateTime?
+}
+
+model MasterData {
+  id        String   @id @default(cuid())
+  type      String
+  code      String
+  name      String
+  nameArabic String?
+  active    Boolean  @default(true)
+  metadata  Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  archivedAt DateTime?
+
+  @@unique([type, code])
+}
+
+model ApprovalWorkflow {
+  id        String   @id @default(cuid())
+  module    String
+  name      String
+  active    Boolean  @default(true)
+  steps     Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ApprovalHistory {
+  id             String         @id @default(cuid())
+  leaveRequestId String?
+  leaveRequest   LeaveRequest?  @relation(fields: [leaveRequestId], references: [id])
+  module         String
+  entityId       String
+  status         ApprovalStatus
+  comments       String?
+  actedBy        String?
+  createdAt      DateTime       @default(now())
+}
+
+model Notification {
+  id          String   @id @default(cuid())
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id])
+  employeeId  String?
+  employee    Employee? @relation(fields: [employeeId], references: [id])
+  title       String
+  message     String
+  category    String
+  readAt      DateTime?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+}
+
+model GovernmentIntegrationSetting {
+  id          String   @id @default(cuid())
+  provider    String   @unique
+  environment String   @default("SANDBOX")
+  apiUrl      String?
+  encryptedClientId String?
+  encryptedClientSecret String?
+  enabled     Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model GovernmentIntegrationLog {
+  id        String   @id @default(cuid())
+  provider  String
+  action    String
+  status    String
+  requestReference String?
+  message   String?
+  payload   Json?
+  createdAt DateTime @default(now())
+}
+
+model EmployeeImportBatch {
+  id              String   @id @default(cuid())
+  batchNumber     String   @unique
+  fileName        String?
+  mode            String   @default("CREATE_ONLY")
+  status          String   @default("DRAFT")
+  totalRows       Int      @default(0)
+  createdCount    Int      @default(0)
+  updatedCount    Int      @default(0)
+  failedCount     Int      @default(0)
+  duplicateCount  Int      @default(0)
+  validationErrors Json?
+  originalFileContent String?
+  uploadedBy      String?
+  importedAt      DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  archivedAt      DateTime?
+  rows            EmployeeImportRow[]
+}
+
+model EmployeeImportRow {
+  id          String   @id @default(cuid())
+  batchId     String
+  batch       EmployeeImportBatch @relation(fields: [batchId], references: [id])
+  employeeId  String?
+  employee    Employee? @relation(fields: [employeeId], references: [id])
+  rowNumber   Int
+  employeeCode String?
+  status      String   @default("PENDING")
+  action      String?
+  rawData     Json
+  errors      Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model ManagementGroup {
+  id          String   @id @default(cuid())
+  groupCode   String   @unique
+  groupName   String
+  description String?
+  groupType   String
+  company     String?
+  branch      String?
+  department  String?
+  status      String   @default("ACTIVE")
+  groupOwner  String?
+  metadata    Json?
+  members     GroupMember[]
+  createdBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  archivedAt  DateTime?
+}
+
+model GroupMember {
+  id         String   @id @default(cuid())
+  groupId    String
+  group      ManagementGroup @relation(fields: [groupId], references: [id])
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id])
+  createdAt  DateTime @default(now())
+
+  @@unique([groupId, employeeId])
+}
