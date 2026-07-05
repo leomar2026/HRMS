@@ -36,6 +36,7 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
         count={`${total} records`}
         searchPlaceholder="Search employee number, name, email, or national ID"
         actions={[
+          { label: "Add New", href: "/employees/new", icon: "add", primary: true },
           { label: "Import", href: "/employee-import", icon: "import" },
           { label: "Export", href: "/api/backend/employees/export.csv", icon: "export" },
           { label: "Groups", href: "/group-management?type=EMPLOYEE", icon: "columns" }

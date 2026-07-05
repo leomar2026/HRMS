@@ -70,6 +70,14 @@ const omEmployee = {
 previewRouter.use(requireAuth);
 
 previewRouter.get("/employees", (_req, res) => res.json({ items: [employee, { ...selfServiceEmployee, user: { id: "preview-employee-user", role: "EMPLOYEE", portalStatus: "ACTIVE" } }, { ...managerEmployee, user: { id: "preview-manager-user", role: "DEPARTMENT_MANAGER", portalStatus: "ACTIVE" } }, { ...omEmployee, user: { id: "preview-om-user", role: "OPERATIONS_MANAGER", portalStatus: "ACTIVE" } }], total: 4, page: 1, pageSize: 25 }));
+previewRouter.post("/employees", (req, res) => res.status(201).json({
+  id: `preview-employee-${Date.now()}`,
+  status: "ACTIVE",
+  leaveBalance: Number(req.body.leaveBalance ?? 21),
+  department: { id: req.body.departmentId, name: "Preview Department" },
+  user: { role: req.body.role ?? "EMPLOYEE", portalStatus: req.body.role === "EMPLOYEE" ? "PENDING_FIRST_LOGIN" : "ACTIVE" },
+  ...req.body
+}));
 previewRouter.get("/employees/me", (_req, res) => res.json(employee));
 previewRouter.patch("/employees/:id/user-role", (req, res) => res.json({ id: req.params.id, user: { role: req.body.role, portalStatus: req.body.portalStatus ?? "ACTIVE" } }));
 
