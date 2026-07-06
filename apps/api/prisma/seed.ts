@@ -230,7 +230,9 @@ async function main() {
   });
 
   const masterData = [
-    ["BRANCH", "RUH", "Riyadh Head Office"],
+    ["BRANCH", "JED", "Jeddah"],
+    ["BRANCH", "RUH", "Riyadh"],
+    ["BRANCH", "DMM", "Dammam"],
     ["JOB_TITLE", "OPS-SPEC", "Operations Specialist"],
     ["GRADE", "G5", "Grade 5"],
     ["COST_CENTER", "HR-001", "Human Resources"],

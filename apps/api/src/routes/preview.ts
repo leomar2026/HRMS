@@ -381,11 +381,17 @@ previewRouter.get("/reports/audit-trail.csv", (_req, res) => {
   res.send("createdAt,userId,module,action,entityId,ipAddress,device\n2026-06-30T00:00:00Z,preview-admin,Employee,CREATE,EMP-001,127.0.0.1,Preview");
 });
 
-previewRouter.get("/master-data", (_req, res) => res.json([
-  { id: "md-1", type: "BRANCH", code: "RUH", name: "Riyadh Head Office", active: true },
+const previewMasterData = [
+  { id: "md-branch-jed", type: "BRANCH", code: "JED", name: "Jeddah", active: true },
+  { id: "md-branch-ruh", type: "BRANCH", code: "RUH", name: "Riyadh", active: true },
+  { id: "md-branch-dmm", type: "BRANCH", code: "DMM", name: "Dammam", active: true },
   { id: "md-2", type: "LEAVE_TYPE", code: "ANNUAL", name: "Annual Leave", active: true },
   { id: "md-3", type: "SHIFT", code: "DAY", name: "Day Shift", active: true }
-]));
+];
+previewRouter.get("/master-data", (req, res) => {
+  const type = typeof req.query.type === "string" ? req.query.type : undefined;
+  res.json(type ? previewMasterData.filter((record) => record.type === type) : previewMasterData);
+});
 previewRouter.post("/master-data", (req, res) => res.status(201).json({ id: "md-new", ...req.body }));
 previewRouter.patch("/master-data/:id", (req, res) => res.json({ id: req.params.id, ...req.body }));
 previewRouter.delete("/master-data/:id", (req, res) => res.json({ id: req.params.id, archivedAt: new Date().toISOString() }));
