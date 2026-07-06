@@ -27,7 +27,13 @@ const envSchema = z.object({
   MUDAD_CLIENT_SECRET: z.string().optional().default(""),
   QIWA_API_URL: z.string().optional().default(""),
   QIWA_CLIENT_ID: z.string().optional().default(""),
-  QIWA_CLIENT_SECRET: z.string().optional().default("")
+  QIWA_CLIENT_SECRET: z.string().optional().default(""),
+  ZKTECO_SDK_AGENT_URL: z.string().optional().default(""),
+  ZKTECO_SDK_AGENT_TOKEN: z.string().optional().default(""),
+  BIOTIME_API_URL: z.string().optional().default(""),
+  BIOTIME_API_USERNAME: z.string().optional().default(""),
+  BIOTIME_API_PASSWORD: z.string().optional().default(""),
+  BIOTIME_DATABASE_URL: z.string().optional().default("")
 });
 
 export const env = envSchema.parse(process.env);

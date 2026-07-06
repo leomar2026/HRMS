@@ -234,6 +234,54 @@ previewRouter.post("/attendance/import", (_req, res) => res.json({
 
 previewRouter.post("/attendance/detect-absences", (_req, res) => res.json({ created: 0 }));
 
+const biometricDevice = {
+  id: "preview-zkteco-1",
+  deviceName: "Main Entrance ZKTeco",
+  deviceCode: "ZK-MAIN-01",
+  brand: "ZKTeco",
+  model: "K40",
+  serialNumber: "ZK-PREVIEW-001",
+  ipAddress: "192.168.1.201",
+  port: 4370,
+  connectionType: "MANUAL_IMPORT",
+  deviceLocation: "Main Entrance",
+  branch: "Riyadh",
+  department: { id: "preview-dept-3", name: "Operations", code: "OPS" },
+  timezone: "Asia/Riyadh",
+  status: "ACTIVE",
+  lastSyncAt: new Date().toISOString(),
+  connectionStatus: "CONNECTED",
+  syncIntervalMinutes: 15,
+  remarks: "Preview manual import device",
+  _count: { logs: 3, mappings: 2 }
+};
+const biometricMappings = [
+  { id: "preview-map-1", biometricId: "BIO-002", deviceUserId: "EMP-002", cardNumber: "1002", syncStatus: "SYNCED", lastPunchAt: "2026-06-01T05:02:00.000Z", active: true, employee: { ...selfServiceEmployee, department: selfServiceEmployee.department }, device: biometricDevice },
+  { id: "preview-map-2", biometricId: "BIO-003", deviceUserId: "EMP-003", cardNumber: "1003", syncStatus: "SYNCED", lastPunchAt: "2026-06-01T05:20:00.000Z", active: true, employee: { id: "preview-employee-3", employeeCode: "EMP-003", firstName: "Team", lastName: "Member", department: { id: "preview-dept-7", name: "Sales", code: "SAL" } }, device: biometricDevice }
+];
+const biometricRawLogs = [
+  { id: "preview-raw-1", deviceId: biometricDevice.id, device: biometricDevice, deviceName: biometricDevice.deviceName, deviceUserId: "EMP-002", employee: { ...selfServiceEmployee, department: selfServiceEmployee.department }, employeeName: "Employee User", punchDate: "2026-06-01T00:00:00.000Z", punchTime: "2026-06-01T05:02:00.000Z", punchType: "CHECK_IN", verificationType: "Fingerprint", workCode: "", deviceSerialNumber: biometricDevice.serialNumber, deviceIp: biometricDevice.ipAddress, syncAt: new Date().toISOString(), rawLogReference: "preview-raw-1", processingStatus: "PROCESSED" },
+  { id: "preview-raw-2", deviceId: biometricDevice.id, device: biometricDevice, deviceName: biometricDevice.deviceName, deviceUserId: "EMP-999", employee: null, employeeName: null, punchDate: "2026-06-01T00:00:00.000Z", punchTime: "2026-06-01T05:10:00.000Z", punchType: "UNKNOWN", verificationType: "Face", workCode: "", deviceSerialNumber: biometricDevice.serialNumber, deviceIp: biometricDevice.ipAddress, syncAt: new Date().toISOString(), rawLogReference: "preview-raw-2", processingStatus: "UNMATCHED", errorMessage: "No employee mapping found for biometric device user ID." }
+];
+const biometricAttendanceRecords = [
+  { id: "preview-att-record-1", employee: { ...selfServiceEmployee, department: selfServiceEmployee.department }, workDate: "2026-06-01T00:00:00.000Z", shift: "Day Shift", firstIn: "2026-06-01T05:02:00.000Z", lastOut: "2026-06-01T14:15:00.000Z", workingHours: "9.22", lateMinutes: 2, earlyOutMinutes: 0, overtimeHours: "0.25", attendanceStatus: "LATE", device: biometricDevice, source: "BIOMETRIC", approvalStatus: "DRAFT" }
+];
+previewRouter.get("/biometrics/devices", (_req, res) => res.json([biometricDevice]));
+previewRouter.post("/biometrics/devices", (req, res) => res.status(201).json({ id: `preview-device-${Date.now()}`, connectionStatus: "NOT_TESTED", lastSyncAt: null, _count: { logs: 0, mappings: 0 }, ...req.body }));
+previewRouter.patch("/biometrics/devices/:id", (req, res) => res.json({ ...biometricDevice, id: req.params.id, ...req.body }));
+previewRouter.delete("/biometrics/devices/:id", (req, res) => res.json({ ...biometricDevice, id: req.params.id, status: "INACTIVE" }));
+previewRouter.post("/biometrics/devices/:id/test-connection", (req, res) => res.json({ ok: true, message: "Preview connection test completed. Configure a real device before production sync.", device: { ...biometricDevice, id: req.params.id } }));
+previewRouter.post("/biometrics/devices/:id/sync", (req, res) => res.status(400).json({ id: "preview-sync-failed", deviceId: req.params.id, status: "FAILED", errorMessage: "Preview mode does not connect to a live biometric machine." }));
+previewRouter.post("/biometrics/import", (_req, res) => res.status(201).json({ id: "preview-import-1", status: "COMPLETED", pulledCount: 2, processedCount: 1, unmatchedCount: 1, duplicateCount: 0 }));
+previewRouter.get("/biometrics/mappings", (_req, res) => res.json(biometricMappings));
+previewRouter.post("/biometrics/mappings", (req, res) => res.status(201).json({ id: `preview-map-${Date.now()}`, syncStatus: "PENDING", active: true, ...req.body }));
+previewRouter.patch("/biometrics/mappings/:id", (req, res) => res.json({ ...biometricMappings[0], id: req.params.id, ...req.body }));
+previewRouter.delete("/biometrics/mappings/:id", (req, res) => res.json({ id: req.params.id, active: false }));
+previewRouter.get("/biometrics/raw-logs", (_req, res) => res.json(biometricRawLogs));
+previewRouter.get("/biometrics/attendance-records", (_req, res) => res.json(biometricAttendanceRecords));
+previewRouter.get("/biometrics/sync-history", (_req, res) => res.json([{ id: "preview-sync-1", device: biometricDevice, startedAt: new Date().toISOString(), finishedAt: new Date().toISOString(), status: "COMPLETED", pulledCount: 2, processedCount: 1, unmatchedCount: 1, duplicateCount: 0, triggeredBy: "admin@company.sa" }]));
+previewRouter.get("/biometrics/error-logs", (_req, res) => res.json([{ id: "preview-error-1", device: biometricDevice, action: "PROCESS_PUNCH", message: "No employee mapping found for EMP-999", createdAt: new Date().toISOString() }]));
+
 previewRouter.get("/drafts", (_req, res) => res.json([]));
 previewRouter.put("/drafts", (req, res) => res.json({
   id: "preview-draft-1",

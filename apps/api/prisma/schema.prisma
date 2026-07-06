@@ -39,6 +39,52 @@ enum AttendanceStatus {
   LEAVE
 }
 
+enum BiometricConnectionType {
+  TCP_IP
+  ADMS_PUSH
+  BIOTIME_API
+  BIOTIME_DATABASE
+  MANUAL_IMPORT
+}
+
+enum BiometricDeviceStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum BiometricConnectionStatus {
+  NOT_TESTED
+  CONNECTED
+  FAILED
+}
+
+enum BiometricProcessingStatus {
+  RAW
+  PROCESSED
+  UNMATCHED
+  ERROR
+  DUPLICATE
+}
+
+enum BiometricPunchType {
+  CHECK_IN
+  CHECK_OUT
+  BREAK_OUT
+  BREAK_IN
+  OVERTIME_IN
+  OVERTIME_OUT
+  UNKNOWN
+}
+
+enum AttendanceApprovalStatus {
+  DRAFT
+  PENDING_MANAGER_APPROVAL
+  PENDING_HR_MANAGER_APPROVAL
+  FINAL_APPROVED
+  REJECTED
+  RETURNED_FOR_CORRECTION
+}
+
 enum LeaveType {
   ANNUAL
   SICK
@@ -68,24 +114,24 @@ enum PayrollStatus {
 }
 
 model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
-  passwordHash String
-  role         Role     @default(EMPLOYEE)
-  employeeId   String?  @unique
-  employee     Employee? @relation(fields: [employeeId], references: [id])
-  notifications Notification[]
-  portalStatus String   @default("ACTIVE")
-  failedLoginAttempts Int @default(0)
-  lockedUntil  DateTime?
-  forcePasswordChange Boolean @default(false)
-  passwordChangedAt DateTime @default(now())
-  passwordHistory Json?
-  sessions     UserSession[]
-  resetTokens  PasswordResetToken[]
-  portalOtps   PortalOtp[]
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id                  String               @id @default(cuid())
+  email               String               @unique
+  passwordHash        String
+  role                Role                 @default(EMPLOYEE)
+  employeeId          String?              @unique
+  employee            Employee?            @relation(fields: [employeeId], references: [id])
+  notifications       Notification[]
+  portalStatus        String               @default("ACTIVE")
+  failedLoginAttempts Int                  @default(0)
+  lockedUntil         DateTime?
+  forcePasswordChange Boolean              @default(false)
+  passwordChangedAt   DateTime             @default(now())
+  passwordHistory     Json?
+  sessions            UserSession[]
+  resetTokens         PasswordResetToken[]
+  portalOtps          PortalOtp[]
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
 }
 
 model LoginAttempt {
@@ -100,38 +146,38 @@ model LoginAttempt {
 }
 
 model UserSession {
-  id           String   @id @default(cuid())
-  userId       String
-  user         User     @relation(fields: [userId], references: [id])
-  tokenId      String   @unique
-  device       String?
-  ipAddress    String?
-  lastSeenAt   DateTime @default(now())
-  expiresAt    DateTime
-  revokedAt    DateTime?
-  createdAt    DateTime @default(now())
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id])
+  tokenId    String    @unique
+  device     String?
+  ipAddress  String?
+  lastSeenAt DateTime  @default(now())
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
 }
 
 model PasswordResetToken {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   userId    String
-  user      User     @relation(fields: [userId], references: [id])
-  tokenHash String   @unique
+  user      User      @relation(fields: [userId], references: [id])
+  tokenHash String    @unique
   expiresAt DateTime
   usedAt    DateTime?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 }
 
 model PortalOtp {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   userId    String
-  user      User     @relation(fields: [userId], references: [id])
+  user      User      @relation(fields: [userId], references: [id])
   purpose   String
   otpHash   String
-  attempts  Int      @default(0)
+  attempts  Int       @default(0)
   expiresAt DateTime
   usedAt    DateTime?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 }
 
 model FormDraft {
@@ -148,108 +194,120 @@ model FormDraft {
 }
 
 model CompanyProfile {
-  id                 String   @id @default("default")
-  companyName        String
-  companyNameArabic  String?
-  registrationNumber String?
-  vatNumber          String?
-  address            String?
-  city               String?
-  country            String?  @default("Saudi Arabia")
-  phone              String?
-  fax                String?
-  email              String?
-  website            String?
-  gosiNumber         String?
-  qiwaReference      String?
-  bankDetails        String?
+  id                  String   @id @default("default")
+  companyName         String
+  companyNameArabic   String?
+  registrationNumber  String?
+  vatNumber           String?
+  address             String?
+  city                String?
+  country             String?  @default("Saudi Arabia")
+  phone               String?
+  fax                 String?
+  email               String?
+  website             String?
+  gosiNumber          String?
+  qiwaReference       String?
+  bankDetails         String?
   authorizedSignatory String?
   companyStampDataUrl String?
-  letterheadSettings Json?
-  logoDataUrl        String?
-  logoVersion        Int      @default(1)
+  letterheadSettings  Json?
+  logoDataUrl         String?
+  logoVersion         Int      @default(1)
   documentCompanyMode String   @default("CURRENT")
-  updatedBy          String?
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  updatedBy           String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 }
 
 model Department {
-  id        String     @id @default(cuid())
-  name      String     @unique
-  code      String     @unique
-  employees Employee[]
-  managedBy Employee[]  @relation("DepartmentManager")
+  id                String             @id @default(cuid())
+  name              String             @unique
+  code              String             @unique
+  employees         Employee[]
+  managedBy         Employee[]         @relation("DepartmentManager")
   approvalWorkflows ApprovalWorkflow[]
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
+  biometricDevices  BiometricDevice[]
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
 }
 
 model Employee {
-  id                 String           @id @default(cuid())
-  employeeCode       String           @unique
-  nationalId         String           @unique
-  firstName          String
-  lastName           String
-  fullNameArabic     String?
-  nationality        String?
-  gender             String?
-  dateOfBirth        DateTime?
-  maritalStatus      String?
-  religion           String?
-  email              String           @unique
-  companyEmail       String?
-  phone              String?
-  emergencyContact   String?
-  address            String?
-  passportNumber     String?
-  iqamaExpiryDate    DateTime?
-  passportExpiryDate DateTime?
-  visaDetails        String?
-  visaExpiryDate     DateTime?
-  workPermitDetails  String?
-  gosiNumber         String?
-  qiwaReference      String?
-  bankName           String?
-  iban               String?
-  jobTitle           String
-  branch             String?
-  location           String?
-  managerId          String?
-  manager            Employee?        @relation("EmployeeManager", fields: [managerId], references: [id])
-  directReports      Employee[]       @relation("EmployeeManager")
-  employeeType       String?
-  contractType       String?
-  contractExpiryDate DateTime?
-  probationStartDate DateTime?
-  probationEndDate   DateTime?
-  medicalInsuranceExpiryDate DateTime?
-  drivingLicenseExpiryDate DateTime?
-  photoUrl           String?
-  joiningDate        DateTime
-  status             EmploymentStatus @default(ACTIVE)
-  basicSalary        Decimal          @db.Decimal(12, 2)
-  housingAllowance   Decimal          @db.Decimal(12, 2) @default(0)
-  transportAllowance Decimal          @db.Decimal(12, 2) @default(0)
-  otherAllowance     Decimal          @db.Decimal(12, 2) @default(0)
-  leaveBalance       Int              @default(21)
-  departmentId       String
-  department         Department       @relation(fields: [departmentId], references: [id])
-  managedDepartments Department[]     @relation("DepartmentManager")
-  user               User?
-  attendance         Attendance[]
-  leaves             LeaveRequest[]
-  managedLeaveRequests LeaveRequest[] @relation("LeaveManager")
-  notifications      Notification[]
-  payrollItems       PayrollItem[]
-  uploadedPayrollItems PayrollUploadItem[]
-  uploadedLeaveBalances LeaveBalanceUploadItem[]
-  importRows         EmployeeImportRow[]
-  groupMemberships   GroupMember[]
-  documents          EmployeeDocument[]
-  createdAt          DateTime         @default(now())
-  updatedAt          DateTime         @updatedAt
-  archivedAt         DateTime?
+  id                           String                        @id @default(cuid())
+  employeeCode                 String                        @unique
+  nationalId                   String                        @unique
+  firstName                    String
+  lastName                     String
+  fullNameArabic               String?
+  nationality                  String?
+  gender                       String?
+  dateOfBirth                  DateTime?
+  maritalStatus                String?
+  religion                     String?
+  email                        String                        @unique
+  companyEmail                 String?
+  phone                        String?
+  emergencyContact             String?
+  address                      String?
+  passportNumber               String?
+  iqamaExpiryDate              DateTime?
+  passportExpiryDate           DateTime?
+  visaDetails                  String?
+  visaExpiryDate               DateTime?
+  workPermitDetails            String?
+  gosiNumber                   String?
+  qiwaReference                String?
+  biometricId                  String?
+  deviceUserId                 String?
+  cardNumber                   String?
+  fingerprintEnrollmentStatus  String?
+  faceEnrollmentStatus         String?
+  deviceAssignment             String?
+  biometricActive              Boolean                       @default(true)
+  bankName                     String?
+  iban                         String?
+  jobTitle                     String
+  branch                       String?
+  location                     String?
+  managerId                    String?
+  manager                      Employee?                     @relation("EmployeeManager", fields: [managerId], references: [id])
+  directReports                Employee[]                    @relation("EmployeeManager")
+  employeeType                 String?
+  contractType                 String?
+  contractExpiryDate           DateTime?
+  probationStartDate           DateTime?
+  probationEndDate             DateTime?
+  medicalInsuranceExpiryDate   DateTime?
+  drivingLicenseExpiryDate     DateTime?
+  photoUrl                     String?
+  joiningDate                  DateTime
+  status                       EmploymentStatus              @default(ACTIVE)
+  basicSalary                  Decimal                       @db.Decimal(12, 2)
+  housingAllowance             Decimal                       @default(0) @db.Decimal(12, 2)
+  transportAllowance           Decimal                       @default(0) @db.Decimal(12, 2)
+  otherAllowance               Decimal                       @default(0) @db.Decimal(12, 2)
+  leaveBalance                 Int                           @default(21)
+  departmentId                 String
+  department                   Department                    @relation(fields: [departmentId], references: [id])
+  managedDepartments           Department[]                  @relation("DepartmentManager")
+  user                         User?
+  attendance                   Attendance[]
+  biometricMappings            BiometricEmployeeMapping[]
+  rawBiometricLogs             BiometricDeviceLog[]
+  attendanceRecords            AttendanceRecord[]
+  attendanceAdjustmentRequests AttendanceAdjustmentRequest[]
+  leaves                       LeaveRequest[]
+  managedLeaveRequests         LeaveRequest[]                @relation("LeaveManager")
+  notifications                Notification[]
+  payrollItems                 PayrollItem[]
+  uploadedPayrollItems         PayrollUploadItem[]
+  uploadedLeaveBalances        LeaveBalanceUploadItem[]
+  importRows                   EmployeeImportRow[]
+  groupMemberships             GroupMember[]
+  documents                    EmployeeDocument[]
+  createdAt                    DateTime                      @default(now())
+  updatedAt                    DateTime                      @updatedAt
+  archivedAt                   DateTime?
 }
 
 model Attendance {
@@ -260,7 +318,7 @@ model Attendance {
   checkIn       DateTime?
   checkOut      DateTime?
   lateMinutes   Int              @default(0)
-  overtimeHours Decimal          @db.Decimal(8, 2) @default(0)
+  overtimeHours Decimal          @default(0) @db.Decimal(8, 2)
   status        AttendanceStatus @default(PRESENT)
   source        String           @default("MANUAL")
   createdAt     DateTime         @default(now())
@@ -269,33 +327,191 @@ model Attendance {
   @@unique([employeeId, workDate])
 }
 
+model BiometricDevice {
+  id                  String                     @id @default(cuid())
+  deviceName          String
+  deviceCode          String                     @unique
+  brand               String                     @default("ZKTeco")
+  model               String?
+  serialNumber        String?
+  ipAddress           String?
+  port                Int?
+  connectionType      BiometricConnectionType
+  deviceLocation      String?
+  branch              String?
+  departmentId        String?
+  department          Department?                @relation(fields: [departmentId], references: [id])
+  timezone            String                     @default("Asia/Riyadh")
+  status              BiometricDeviceStatus      @default(ACTIVE)
+  lastSyncAt          DateTime?
+  connectionStatus    BiometricConnectionStatus  @default(NOT_TESTED)
+  syncIntervalMinutes Int                        @default(15)
+  remarks             String?
+  secureConfig        Json?
+  logs                BiometricDeviceLog[]
+  mappings            BiometricEmployeeMapping[]
+  syncHistory         BiometricSyncHistory[]
+  errorLogs           BiometricErrorLog[]
+  attendanceRecords   AttendanceRecord[]
+  createdBy           String?
+  createdAt           DateTime                   @default(now())
+  updatedAt           DateTime                   @updatedAt
+  archivedAt          DateTime?
+}
+
+model BiometricDeviceLog {
+  id                 String                    @id @default(cuid())
+  deviceId           String
+  device             BiometricDevice           @relation(fields: [deviceId], references: [id])
+  deviceName         String
+  deviceUserId       String
+  employeeId         String?
+  employee           Employee?                 @relation(fields: [employeeId], references: [id])
+  employeeName       String?
+  punchDate          DateTime
+  punchTime          DateTime
+  punchType          BiometricPunchType        @default(UNKNOWN)
+  verificationType   String?
+  workCode           String?
+  deviceSerialNumber String?
+  deviceIp           String?
+  syncAt             DateTime                  @default(now())
+  rawLogReference    String
+  rawPayload         Json?
+  processingStatus   BiometricProcessingStatus @default(RAW)
+  errorMessage       String?
+  attendanceRecordId String?
+  attendanceRecord   AttendanceRecord?         @relation(fields: [attendanceRecordId], references: [id])
+  createdAt          DateTime                  @default(now())
+
+  @@unique([deviceId, rawLogReference])
+  @@index([deviceUserId, punchDate])
+  @@index([employeeId, punchDate])
+}
+
+model BiometricEmployeeMapping {
+  id           String           @id @default(cuid())
+  employeeId   String
+  employee     Employee         @relation(fields: [employeeId], references: [id])
+  deviceId     String?
+  device       BiometricDevice? @relation(fields: [deviceId], references: [id])
+  biometricId  String?
+  deviceUserId String
+  cardNumber   String?
+  syncStatus   String           @default("PENDING")
+  lastPunchAt  DateTime?
+  active       Boolean          @default(true)
+  remarks      String?
+  createdBy    String?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  archivedAt   DateTime?
+
+  @@unique([deviceId, deviceUserId])
+  @@index([employeeId])
+}
+
+model AttendanceRecord {
+  id                 String                        @id @default(cuid())
+  employeeId         String
+  employee           Employee                      @relation(fields: [employeeId], references: [id])
+  workDate           DateTime
+  shift              String?
+  firstIn            DateTime?
+  lastOut            DateTime?
+  workingHours       Decimal                       @default(0) @db.Decimal(8, 2)
+  lateMinutes        Int                           @default(0)
+  earlyOutMinutes    Int                           @default(0)
+  overtimeHours      Decimal                       @default(0) @db.Decimal(8, 2)
+  attendanceStatus   String                        @default("PRESENT")
+  deviceId           String?
+  device             BiometricDevice?              @relation(fields: [deviceId], references: [id])
+  source             String                        @default("BIOMETRIC")
+  approvalStatus     AttendanceApprovalStatus      @default(DRAFT)
+  rawLogs            BiometricDeviceLog[]
+  adjustmentRequests AttendanceAdjustmentRequest[]
+  createdAt          DateTime                      @default(now())
+  updatedAt          DateTime                      @updatedAt
+
+  @@unique([employeeId, workDate])
+  @@index([workDate])
+}
+
+model AttendanceAdjustmentRequest {
+  id                 String                   @id @default(cuid())
+  requestNumber      String                   @unique @default(cuid())
+  employeeId         String
+  employee           Employee                 @relation(fields: [employeeId], references: [id])
+  attendanceRecordId String?
+  attendanceRecord   AttendanceRecord?        @relation(fields: [attendanceRecordId], references: [id])
+  reasonType         String
+  requestedCheckIn   DateTime?
+  requestedCheckOut  DateTime?
+  requestedShift     String?
+  comments           String?
+  workflowStage      String                   @default("PENDING_MANAGER_APPROVAL")
+  status             AttendanceApprovalStatus @default(PENDING_MANAGER_APPROVAL)
+  managerId          String?
+  hrApproverId       String?
+  decidedAt          DateTime?
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
+}
+
+model BiometricSyncHistory {
+  id                String                   @id @default(cuid())
+  deviceId          String?
+  device            BiometricDevice?         @relation(fields: [deviceId], references: [id])
+  connectionType    BiometricConnectionType?
+  startedAt         DateTime                 @default(now())
+  finishedAt        DateTime?
+  status            String                   @default("RUNNING")
+  pulledCount       Int                      @default(0)
+  processedCount    Int                      @default(0)
+  unmatchedCount    Int                      @default(0)
+  duplicateCount    Int                      @default(0)
+  lastTransactionId String?
+  errorMessage      String?
+  triggeredBy       String?
+}
+
+model BiometricErrorLog {
+  id        String           @id @default(cuid())
+  deviceId  String?
+  device    BiometricDevice? @relation(fields: [deviceId], references: [id])
+  action    String
+  message   String
+  payload   Json?
+  createdAt DateTime         @default(now())
+}
+
 model LeaveRequest {
-  id          String         @id @default(cuid())
-  requestNumber String       @unique @default(cuid())
-  employeeId  String
-  employee    Employee       @relation(fields: [employeeId], references: [id])
-  managerId   String?
-  manager     Employee?      @relation("LeaveManager", fields: [managerId], references: [id])
-  omApproverId String?
-  hrApproverId String?
-  type        LeaveType
-  startDate   DateTime
-  endDate     DateTime
-  days        Int
-  reason      String?
-  contactNumber String?
-  leaveAddress String?
-  emergencyContact String?
-  attachmentName String?
+  id                        String            @id @default(cuid())
+  requestNumber             String            @unique @default(cuid())
+  employeeId                String
+  employee                  Employee          @relation(fields: [employeeId], references: [id])
+  managerId                 String?
+  manager                   Employee?         @relation("LeaveManager", fields: [managerId], references: [id])
+  omApproverId              String?
+  hrApproverId              String?
+  type                      LeaveType
+  startDate                 DateTime
+  endDate                   DateTime
+  days                      Int
+  reason                    String?
+  contactNumber             String?
+  leaveAddress              String?
+  emergencyContact          String?
+  attachmentName            String?
   availableBalanceAtRequest Int?
-  workflowStage String      @default("PENDING_MANAGER_APPROVAL")
-  comments    String?
-  status      ApprovalStatus @default(PENDING)
-  approvedBy  String?
-  decidedAt   DateTime?
-  approvalHistory ApprovalHistory[]
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
+  workflowStage             String            @default("PENDING_MANAGER_APPROVAL")
+  comments                  String?
+  status                    ApprovalStatus    @default(PENDING)
+  approvedBy                String?
+  decidedAt                 DateTime?
+  approvalHistory           ApprovalHistory[]
+  createdAt                 DateTime          @default(now())
+  updatedAt                 DateTime          @updatedAt
 }
 
 model SystemSetting {
@@ -318,31 +534,31 @@ model EmailTemplate {
 }
 
 model EmailLog {
-  id                 String   @id @default(cuid())
-  notificationKey    String   @unique
+  id                 String    @id @default(cuid())
+  notificationKey    String    @unique
   recipient          String
   subject            String
   templateCode       String
   leaveRequestNumber String?
-  status             String   @default("PENDING")
+  status             String    @default("PENDING")
   sentAt             DateTime?
   failureReason      String?
-  retryCount         Int      @default(0)
+  retryCount         Int       @default(0)
   payload            Json?
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 }
 
 model PayrollRun {
-  id          String        @id @default(cuid())
-  month       Int
-  year        Int
-  status      PayrollStatus @default(DRAFT)
-  approvedBy  String?
-  approvedAt  DateTime?
-  items       PayrollItem[]
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  id         String        @id @default(cuid())
+  month      Int
+  year       Int
+  status     PayrollStatus @default(DRAFT)
+  approvedBy String?
+  approvedAt DateTime?
+  items      PayrollItem[]
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
 
   @@unique([month, year])
 }
@@ -357,142 +573,142 @@ model PayrollItem {
   housingAllowance   Decimal    @db.Decimal(12, 2)
   transportAllowance Decimal    @db.Decimal(12, 2)
   otherAllowance     Decimal    @db.Decimal(12, 2)
-  overtime           Decimal    @db.Decimal(12, 2) @default(0)
-  absenceDeduction   Decimal    @db.Decimal(12, 2) @default(0)
-  loanDeduction      Decimal    @db.Decimal(12, 2) @default(0)
-  gosiDeduction      Decimal    @db.Decimal(12, 2) @default(0)
+  overtime           Decimal    @default(0) @db.Decimal(12, 2)
+  absenceDeduction   Decimal    @default(0) @db.Decimal(12, 2)
+  loanDeduction      Decimal    @default(0) @db.Decimal(12, 2)
+  gosiDeduction      Decimal    @default(0) @db.Decimal(12, 2)
   netSalary          Decimal    @db.Decimal(12, 2)
 
   @@unique([payrollRunId, employeeId])
 }
 
 model PayrollUploadBatch {
-  id             String   @id @default(cuid())
-  month          Int
-  year           Int
-  company        String
-  branch         String?
-  departmentId   String?
-  payrollType    String
-  paymentDate    DateTime
-  status         String   @default("DRAFT")
+  id               String              @id @default(cuid())
+  month            Int
+  year             Int
+  company          String
+  branch           String?
+  departmentId     String?
+  payrollType      String
+  paymentDate      DateTime
+  status           String              @default("DRAFT")
   originalFileName String?
-  revisionNumber Int      @default(1)
-  submittedAt    DateTime?
-  approvedAt     DateTime?
-  publishedAt    DateTime?
-  lockedAt        DateTime?
+  revisionNumber   Int                 @default(1)
+  submittedAt      DateTime?
+  approvedAt       DateTime?
+  publishedAt      DateTime?
+  lockedAt         DateTime?
   approvalComments String?
-  approvalHistory Json?
-  items          PayrollUploadItem[]
-  createdBy      String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  archivedAt     DateTime?
+  approvalHistory  Json?
+  items            PayrollUploadItem[]
+  createdBy        String?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  archivedAt       DateTime?
 
   @@unique([month, year, company, branch, payrollType, revisionNumber])
 }
 
 model PayrollUploadItem {
-  id                    String   @id @default(cuid())
-  batchId               String
-  batch                 PayrollUploadBatch @relation(fields: [batchId], references: [id])
-  employeeId            String
-  employee              Employee @relation(fields: [employeeId], references: [id])
-  employeeCode          String
-  employeeName          String
-  department            String?
-  jobTitle              String?
-  payrollPeriod         String
-  basicSalary           Decimal  @db.Decimal(12, 2)
-  housingAllowance      Decimal  @db.Decimal(12, 2) @default(0)
-  transportAllowance    Decimal  @db.Decimal(12, 2) @default(0)
-  otherAllowance        Decimal  @db.Decimal(12, 2) @default(0)
-  overtime              Decimal  @db.Decimal(12, 2) @default(0)
-  bonus                 Decimal  @db.Decimal(12, 2) @default(0)
-  commission            Decimal  @db.Decimal(12, 2) @default(0)
-  leaveDeduction        Decimal  @db.Decimal(12, 2) @default(0)
-  unpaidLeaveDeduction  Decimal  @db.Decimal(12, 2) @default(0)
-  loanDeduction         Decimal  @db.Decimal(12, 2) @default(0)
-  advanceDeduction      Decimal  @db.Decimal(12, 2) @default(0)
-  gosiDeduction         Decimal  @db.Decimal(12, 2) @default(0)
-  otherDeduction        Decimal  @db.Decimal(12, 2) @default(0)
-  grossSalary           Decimal  @db.Decimal(12, 2)
-  totalDeduction        Decimal  @db.Decimal(12, 2)
-  netSalary             Decimal  @db.Decimal(12, 2)
-  bankName              String?
-  iban                  String?
-  paymentDate           DateTime
-  remarks               String?
-  documentReference     String   @unique
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+  id                   String             @id @default(cuid())
+  batchId              String
+  batch                PayrollUploadBatch @relation(fields: [batchId], references: [id])
+  employeeId           String
+  employee             Employee           @relation(fields: [employeeId], references: [id])
+  employeeCode         String
+  employeeName         String
+  department           String?
+  jobTitle             String?
+  payrollPeriod        String
+  basicSalary          Decimal            @db.Decimal(12, 2)
+  housingAllowance     Decimal            @default(0) @db.Decimal(12, 2)
+  transportAllowance   Decimal            @default(0) @db.Decimal(12, 2)
+  otherAllowance       Decimal            @default(0) @db.Decimal(12, 2)
+  overtime             Decimal            @default(0) @db.Decimal(12, 2)
+  bonus                Decimal            @default(0) @db.Decimal(12, 2)
+  commission           Decimal            @default(0) @db.Decimal(12, 2)
+  leaveDeduction       Decimal            @default(0) @db.Decimal(12, 2)
+  unpaidLeaveDeduction Decimal            @default(0) @db.Decimal(12, 2)
+  loanDeduction        Decimal            @default(0) @db.Decimal(12, 2)
+  advanceDeduction     Decimal            @default(0) @db.Decimal(12, 2)
+  gosiDeduction        Decimal            @default(0) @db.Decimal(12, 2)
+  otherDeduction       Decimal            @default(0) @db.Decimal(12, 2)
+  grossSalary          Decimal            @db.Decimal(12, 2)
+  totalDeduction       Decimal            @db.Decimal(12, 2)
+  netSalary            Decimal            @db.Decimal(12, 2)
+  bankName             String?
+  iban                 String?
+  paymentDate          DateTime
+  remarks              String?
+  documentReference    String             @unique
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
 
   @@unique([batchId, employeeId])
 }
 
 model LeaveBalanceUploadBatch {
-  id             String   @id @default(cuid())
-  company        String
-  branch         String?
-  leaveYear      Int
-  leaveType      LeaveType
-  status         String   @default("DRAFT")
+  id               String                   @id @default(cuid())
+  company          String
+  branch           String?
+  leaveYear        Int
+  leaveType        LeaveType
+  status           String                   @default("DRAFT")
   originalFileName String?
-  revisionNumber Int      @default(1)
-  submittedAt    DateTime?
-  approvedAt     DateTime?
-  publishedAt    DateTime?
+  revisionNumber   Int                      @default(1)
+  submittedAt      DateTime?
+  approvedAt       DateTime?
+  publishedAt      DateTime?
   approvalComments String?
-  approvalHistory Json?
-  items          LeaveBalanceUploadItem[]
-  createdBy      String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  archivedAt     DateTime?
+  approvalHistory  Json?
+  items            LeaveBalanceUploadItem[]
+  createdBy        String?
+  createdAt        DateTime                 @default(now())
+  updatedAt        DateTime                 @updatedAt
+  archivedAt       DateTime?
 
   @@unique([company, branch, leaveYear, leaveType, revisionNumber])
 }
 
 model LeaveBalanceUploadItem {
-  id                  String   @id @default(cuid())
-  batchId             String
-  batch               LeaveBalanceUploadBatch @relation(fields: [batchId], references: [id])
-  employeeId          String
-  employee            Employee @relation(fields: [employeeId], references: [id])
-  employeeCode        String
-  employeeName        String
-  department          String?
-  leaveType           LeaveType
-  leaveYear           Int
-  openingBalance      Decimal  @db.Decimal(8, 2) @default(0)
-  accruedLeave        Decimal  @db.Decimal(8, 2) @default(0)
-  usedLeave           Decimal  @db.Decimal(8, 2) @default(0)
-  pendingLeave        Decimal  @db.Decimal(8, 2) @default(0)
-  carriedForwardBalance Decimal @db.Decimal(8, 2) @default(0)
-  encashmentBalance   Decimal  @db.Decimal(8, 2) @default(0)
-  adjustmentBalance   Decimal  @db.Decimal(8, 2) @default(0)
-  finalAvailableBalance Decimal @db.Decimal(8, 2)
+  id                     String                  @id @default(cuid())
+  batchId                String
+  batch                  LeaveBalanceUploadBatch @relation(fields: [batchId], references: [id])
+  employeeId             String
+  employee               Employee                @relation(fields: [employeeId], references: [id])
+  employeeCode           String
+  employeeName           String
+  department             String?
+  leaveType              LeaveType
+  leaveYear              Int
+  openingBalance         Decimal                 @default(0) @db.Decimal(8, 2)
+  accruedLeave           Decimal                 @default(0) @db.Decimal(8, 2)
+  usedLeave              Decimal                 @default(0) @db.Decimal(8, 2)
+  pendingLeave           Decimal                 @default(0) @db.Decimal(8, 2)
+  carriedForwardBalance  Decimal                 @default(0) @db.Decimal(8, 2)
+  encashmentBalance      Decimal                 @default(0) @db.Decimal(8, 2)
+  adjustmentBalance      Decimal                 @default(0) @db.Decimal(8, 2)
+  finalAvailableBalance  Decimal                 @db.Decimal(8, 2)
   carryForwardExpiryDate DateTime?
-  remarks             String?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  remarks                String?
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
 
   @@unique([batchId, employeeId, leaveType, leaveYear])
 }
 
 model AuditLog {
-  id        String   @id @default(cuid())
-  userId    String?
-  action    String
-  entity    String
-  entityId  String?
+  id            String   @id @default(cuid())
+  userId        String?
+  action        String
+  entity        String
+  entityId      String?
   previousValue Json?
-  newValue Json?
-  device    String?
-  metadata  Json?
-  ipAddress String?
-  createdAt DateTime @default(now())
+  newValue      Json?
+  device        String?
+  metadata      Json?
+  ipAddress     String?
+  createdAt     DateTime @default(now())
 }
 
 model Announcement {
@@ -505,66 +721,66 @@ model Announcement {
 }
 
 model RolePermission {
-  id                         String   @id @default(cuid())
-  role                       Role
-  module                     String
-  canView                    Boolean  @default(false)
-  canAdd                     Boolean  @default(false)
-  canEdit                    Boolean  @default(false)
-  canDelete                  Boolean  @default(false)
-  canApprove                 Boolean  @default(false)
-  canReject                  Boolean  @default(false)
-  canPrint                   Boolean  @default(false)
-  canExportExcel             Boolean  @default(false)
-  canExportPdf               Boolean  @default(false)
-  canAccessConfidentialSalary Boolean @default(false)
-  canAccessEmployeeDocuments Boolean  @default(false)
-  canAccessGovernmentIntegrations Boolean @default(false)
-  createdAt                  DateTime @default(now())
-  updatedAt                  DateTime @updatedAt
+  id                              String   @id @default(cuid())
+  role                            Role
+  module                          String
+  canView                         Boolean  @default(false)
+  canAdd                          Boolean  @default(false)
+  canEdit                         Boolean  @default(false)
+  canDelete                       Boolean  @default(false)
+  canApprove                      Boolean  @default(false)
+  canReject                       Boolean  @default(false)
+  canPrint                        Boolean  @default(false)
+  canExportExcel                  Boolean  @default(false)
+  canExportPdf                    Boolean  @default(false)
+  canAccessConfidentialSalary     Boolean  @default(false)
+  canAccessEmployeeDocuments      Boolean  @default(false)
+  canAccessGovernmentIntegrations Boolean  @default(false)
+  createdAt                       DateTime @default(now())
+  updatedAt                       DateTime @updatedAt
 
   @@unique([role, module])
 }
 
 model EmployeeDocument {
-  id          String   @id @default(cuid())
-  employeeId  String
-  employee    Employee @relation(fields: [employeeId], references: [id])
+  id           String    @id @default(cuid())
+  employeeId   String
+  employee     Employee  @relation(fields: [employeeId], references: [id])
   documentType String
-  fileName    String
-  fileUrl     String?
-  expiryDate  DateTime?
-  notes       String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  archivedAt  DateTime?
+  fileName     String
+  fileUrl      String?
+  expiryDate   DateTime?
+  notes        String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  archivedAt   DateTime?
 }
 
 model MasterData {
-  id        String   @id @default(cuid())
-  type      String
-  code      String
-  name      String
+  id         String    @id @default(cuid())
+  type       String
+  code       String
+  name       String
   nameArabic String?
-  active    Boolean  @default(true)
-  metadata  Json?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  active     Boolean   @default(true)
+  metadata   Json?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
   archivedAt DateTime?
 
   @@unique([type, code])
 }
 
 model ApprovalWorkflow {
-  id        String   @id @default(cuid())
-  module    String
-  name      String
+  id           String      @id @default(cuid())
+  module       String
+  name         String
   departmentId String?
-  department Department? @relation(fields: [departmentId], references: [id])
-  active    Boolean  @default(true)
-  steps     Json
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  department   Department? @relation(fields: [departmentId], references: [id])
+  active       Boolean     @default(true)
+  steps        Json
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
 
   @@index([module, departmentId])
 }
@@ -582,106 +798,106 @@ model ApprovalHistory {
 }
 
 model Notification {
-  id          String   @id @default(cuid())
-  userId      String?
-  user        User?    @relation(fields: [userId], references: [id])
-  employeeId  String?
-  employee    Employee? @relation(fields: [employeeId], references: [id])
-  title       String
-  message     String
-  category    String
-  notificationKey String? @unique
-  readAt      DateTime?
-  metadata    Json?
-  createdAt   DateTime @default(now())
+  id              String    @id @default(cuid())
+  userId          String?
+  user            User?     @relation(fields: [userId], references: [id])
+  employeeId      String?
+  employee        Employee? @relation(fields: [employeeId], references: [id])
+  title           String
+  message         String
+  category        String
+  notificationKey String?   @unique
+  readAt          DateTime?
+  metadata        Json?
+  createdAt       DateTime  @default(now())
 }
 
 model GovernmentIntegrationSetting {
-  id          String   @id @default(cuid())
-  provider    String   @unique
-  environment String   @default("SANDBOX")
-  apiUrl      String?
-  encryptedClientId String?
+  id                    String   @id @default(cuid())
+  provider              String   @unique
+  environment           String   @default("SANDBOX")
+  apiUrl                String?
+  encryptedClientId     String?
   encryptedClientSecret String?
-  enabled     Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  enabled               Boolean  @default(false)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 }
 
 model GovernmentIntegrationLog {
-  id        String   @id @default(cuid())
-  provider  String
-  action    String
-  status    String
+  id               String   @id @default(cuid())
+  provider         String
+  action           String
+  status           String
   requestReference String?
-  message   String?
-  payload   Json?
-  createdAt DateTime @default(now())
+  message          String?
+  payload          Json?
+  createdAt        DateTime @default(now())
 }
 
 model EmployeeImportBatch {
-  id              String   @id @default(cuid())
-  batchNumber     String   @unique
-  fileName        String?
-  mode            String   @default("CREATE_ONLY")
-  status          String   @default("DRAFT")
-  totalRows       Int      @default(0)
-  createdCount    Int      @default(0)
-  updatedCount    Int      @default(0)
-  failedCount     Int      @default(0)
-  duplicateCount  Int      @default(0)
-  validationErrors Json?
+  id                  String              @id @default(cuid())
+  batchNumber         String              @unique
+  fileName            String?
+  mode                String              @default("CREATE_ONLY")
+  status              String              @default("DRAFT")
+  totalRows           Int                 @default(0)
+  createdCount        Int                 @default(0)
+  updatedCount        Int                 @default(0)
+  failedCount         Int                 @default(0)
+  duplicateCount      Int                 @default(0)
+  validationErrors    Json?
   originalFileContent String?
-  uploadedBy      String?
-  importedAt      DateTime?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  archivedAt      DateTime?
-  rows            EmployeeImportRow[]
+  uploadedBy          String?
+  importedAt          DateTime?
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+  archivedAt          DateTime?
+  rows                EmployeeImportRow[]
 }
 
 model EmployeeImportRow {
-  id          String   @id @default(cuid())
-  batchId     String
-  batch       EmployeeImportBatch @relation(fields: [batchId], references: [id])
-  employeeId  String?
-  employee    Employee? @relation(fields: [employeeId], references: [id])
-  rowNumber   Int
+  id           String              @id @default(cuid())
+  batchId      String
+  batch        EmployeeImportBatch @relation(fields: [batchId], references: [id])
+  employeeId   String?
+  employee     Employee?           @relation(fields: [employeeId], references: [id])
+  rowNumber    Int
   employeeCode String?
-  status      String   @default("PENDING")
-  action      String?
-  rawData     Json
-  errors      Json?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  status       String              @default("PENDING")
+  action       String?
+  rawData      Json
+  errors       Json?
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
 }
 
 model ManagementGroup {
-  id          String   @id @default(cuid())
-  groupCode   String   @unique
+  id          String        @id @default(cuid())
+  groupCode   String        @unique
   groupName   String
   description String?
   groupType   String
   company     String?
   branch      String?
   department  String?
-  status      String   @default("ACTIVE")
+  status      String        @default("ACTIVE")
   groupOwner  String?
   metadata    Json?
   members     GroupMember[]
   createdBy   String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
   archivedAt  DateTime?
 }
 
 model GroupMember {
-  id         String   @id @default(cuid())
+  id         String          @id @default(cuid())
   groupId    String
   group      ManagementGroup @relation(fields: [groupId], references: [id])
   employeeId String
-  employee   Employee @relation(fields: [employeeId], references: [id])
-  createdAt  DateTime @default(now())
+  employee   Employee        @relation(fields: [employeeId], references: [id])
+  createdAt  DateTime        @default(now())
 
   @@unique([groupId, employeeId])
 }

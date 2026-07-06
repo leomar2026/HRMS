@@ -29,6 +29,7 @@ import draftRoutes from "./routes/drafts.js";
 import companyProfileRoutes from "./routes/companyProfile.js";
 import notificationAdminRoutes from "./routes/notificationAdmin.js";
 import publicRoutes from "./routes/public.js";
+import biometricRoutes from "./routes/biometrics.js";
 
 export const app = express();
 
@@ -49,6 +50,7 @@ app.use("/api/om", operationsManagerRoutes);
 app.use("/api/drafts", draftRoutes);
 app.use("/api/company-profile", companyProfileRoutes);
 app.use("/api/notification-admin", notificationAdminRoutes);
+app.use("/api/biometrics", biometricRoutes);
 app.use("/api/employees", employeeRoutes);
 app.use("/api/departments", departmentRoutes);
 app.use("/api/attendance", attendanceRoutes);

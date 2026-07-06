@@ -73,16 +73,31 @@ Employee self-service:
 
 Change seeded passwords immediately in real deployments.
 
-## Biometric Import
+## ZKTeco Biometric Attendance Integration
 
-Use `apps/api/samples/biometric-attendance.csv` as the expected import format:
+The HRMS includes a real attendance integration module for ZKTeco devices:
 
-```csv
-employeeCode,checkIn,checkOut
-EMP-001,2026-06-01T08:07:00+03:00,2026-06-01T17:45:00+03:00
+- Device setup: `/biometric-devices`
+- Employee biometric mapping: `/biometric-mapping`
+- Processed attendance records: `/biometric-attendance`
+- Raw device logs and sync history: `/biometric-logs`
+
+Supported connection modes are TCP/IP, ADMS Push, BioTime API, BioTime Database, and Manual Import. TCP/IP and BioTime syncs require approved SDK/agent or BioTime credentials configured securely on the backend. The frontend never receives device credentials.
+
+CSV fallback sample:
+
+```bash
+samples/zkteco-biometric-import.csv
 ```
 
-The import matches employees by `employeeCode`, calculates late minutes after 08:00, overtime after 17:00, and marks absences through the attendance absence endpoint.
+CSV columns:
+
+```csv
+deviceUserId,punchTime,punchType,verificationType,workCode,rawLogReference
+EMP-002,2026-06-01T08:02:00+03:00,CHECK_IN,Fingerprint,,ZK-MAIN-01-EMP-002-202606010802
+```
+
+Raw biometric logs are stored before processing, duplicates are prevented by device and raw log reference, unmatched device users are reported, and processed logs create daily attendance records using first-in/last-out calculations.
 
 ## Government Connectors
 

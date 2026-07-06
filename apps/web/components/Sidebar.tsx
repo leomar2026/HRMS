@@ -31,7 +31,7 @@ const sections = [
   { title: "Administration", icon: ShieldAlert, links: [{ href: "/permissions", label: "Permissions" }, { href: "/admin-password-reset", label: "Password Reset" }, { href: "/audit-logs", label: "Audit Logs" }] },
   { title: "Masters", icon: Database, links: [{ href: "/company-profile", label: "Company Details" }, { href: "/departments", label: "Departments" }, { href: "/master-data", label: "Master Data" }] },
   { title: "Employee Management", icon: Users, links: [{ href: "/employees", label: "Employees" }, { href: "/employee-import", label: "Employee Import" }, { href: "/employee-export", label: "Employee Export" }, { href: "/employee-document-expiry", label: "Documents & Expiry" }, { href: "/employee-import-history", label: "Import History" }] },
-  { title: "Time & Attendance", icon: CalendarClock, links: [{ href: "/attendance", label: "Attendance" }] },
+  { title: "Time & Attendance", icon: CalendarClock, links: [{ href: "/attendance", label: "Attendance" }, { href: "/biometric-devices", label: "Biometric Devices" }, { href: "/biometric-mapping", label: "Biometric Mapping" }, { href: "/biometric-attendance", label: "Attendance Records" }, { href: "/biometric-logs", label: "Device Logs" }] },
   { title: "Leave Management", icon: FileClock, links: [{ href: "/leave", label: "Leave Requests" }, { href: "/notification-admin", label: "Approval Setup" }, { href: "/group-management?type=LEAVE", label: "Leave Groups" }] },
   { title: "Vacation Management", icon: FileInput, links: [{ href: "/leave-balance-upload", label: "Vacation Balances" }] },
   { title: "Loans & Advances", icon: Banknote, links: [{ href: "/master-data", label: "Loan Settings" }] },
@@ -47,7 +47,7 @@ const sections = [
   { title: "Reports", icon: FileSpreadsheet, links: [{ href: "/reports", label: "Reports" }] }
 ];
 
-const hrSections = sections.filter((section) => ["Dashboard", "Employee Management", "Leave Management", "Vacation Management", "Reports"].includes(section.title));
+const hrSections = sections.filter((section) => ["Dashboard", "Employee Management", "Time & Attendance", "Leave Management", "Vacation Management", "Reports"].includes(section.title));
 
 type SidebarBranding = {
   companyName?: string;
