@@ -6,6 +6,7 @@ import { requireAuth } from "../middleware/auth.js";
 import { requireRoles } from "../middleware/rbac.js";
 import { audit } from "../utils/audit.js";
 import { parseBiometricCsv, pullDeviceLogs, saveAndProcessPunches, testZktecoConnection } from "../services/zktecoService.js";
+import { csvFile, xlsxFile } from "../utils/uploadParsers.js";
 
 const router = Router();
 const manageRoles = [Role.SUPER_ADMIN, Role.ADMIN, Role.HR_MANAGER, Role.HR_OFFICER, Role.HR];
@@ -231,6 +232,20 @@ router.get("/raw-logs", requireRoles(...manageRoles, Role.AUDITOR), async (_req,
   res.json(logs);
 });
 
+router.get("/raw-logs/export.csv", requireRoles(...manageRoles, Role.AUDITOR), async (req, res) => {
+  const logs = await prisma.biometricDeviceLog.findMany({ include: { device: true, employee: { include: { department: true } } }, orderBy: { punchTime: "desc" }, take: 5000 });
+  const headers = ["Device", "Device User ID", "Employee ID", "Employee Name", "Department", "Punch Date", "Punch Time", "Punch Type", "Verification Type", "Work Code", "Serial", "IP", "Sync Time", "Raw Reference", "Processing Status", "Error"];
+  await audit(req, "EXPORT", "BiometricDeviceLog", undefined, { format: "CSV", count: logs.length });
+  csvFile(res, "biometric-raw-logs.csv", headers, logs.map((log) => [log.deviceName, log.deviceUserId, log.employee?.employeeCode ?? "", log.employeeName ?? "", log.employee?.department.name ?? "", log.punchDate.toISOString().slice(0, 10), log.punchTime.toISOString(), log.punchType, log.verificationType ?? "", log.workCode ?? "", log.deviceSerialNumber ?? "", log.deviceIp ?? "", log.syncAt.toISOString(), log.rawLogReference, log.processingStatus, log.errorMessage ?? ""]));
+});
+
+router.get("/raw-logs/export.xlsx", requireRoles(...manageRoles, Role.AUDITOR), async (req, res) => {
+  const logs = await prisma.biometricDeviceLog.findMany({ include: { device: true, employee: { include: { department: true } } }, orderBy: { punchTime: "desc" }, take: 5000 });
+  const headers = ["Device", "Device User ID", "Employee ID", "Employee Name", "Department", "Punch Date", "Punch Time", "Punch Type", "Verification Type", "Work Code", "Serial", "IP", "Sync Time", "Raw Reference", "Processing Status", "Error"];
+  await audit(req, "EXPORT", "BiometricDeviceLog", undefined, { format: "XLSX", count: logs.length });
+  await xlsxFile(res, "biometric-raw-logs.xlsx", headers, logs.map((log) => [log.deviceName, log.deviceUserId, log.employee?.employeeCode ?? "", log.employeeName ?? "", log.employee?.department.name ?? "", log.punchDate.toISOString().slice(0, 10), log.punchTime.toISOString(), log.punchType, log.verificationType ?? "", log.workCode ?? "", log.deviceSerialNumber ?? "", log.deviceIp ?? "", log.syncAt.toISOString(), log.rawLogReference, log.processingStatus, log.errorMessage ?? ""]), "Raw Logs");
+});
+
 router.get("/attendance-records", requireRoles(...manageRoles, Role.ACCOUNTANT, Role.AUDITOR), async (_req, res) => {
   const records = await prisma.attendanceRecord.findMany({
     include: { employee: { include: { department: true } }, device: true },
@@ -238,6 +253,20 @@ router.get("/attendance-records", requireRoles(...manageRoles, Role.ACCOUNTANT, 
     take: 500
   });
   res.json(records);
+});
+
+router.get("/attendance-records/export.csv", requireRoles(...manageRoles, Role.ACCOUNTANT, Role.AUDITOR), async (req, res) => {
+  const records = await prisma.attendanceRecord.findMany({ include: { employee: { include: { department: true } }, device: true }, orderBy: [{ workDate: "desc" }, { employee: { employeeCode: "asc" } }], take: 5000 });
+  const headers = ["Employee ID", "Employee Name", "Department", "Date", "Shift", "First In", "Last Out", "Working Hours", "Late Minutes", "Early Out Minutes", "Overtime Hours", "Status", "Device", "Source", "Approval"];
+  await audit(req, "EXPORT", "AttendanceRecord", undefined, { format: "CSV", count: records.length });
+  csvFile(res, "biometric-attendance-records.csv", headers, records.map((record) => [record.employee.employeeCode, `${record.employee.firstName} ${record.employee.lastName}`, record.employee.department.name, record.workDate.toISOString().slice(0, 10), record.shift ?? "", record.firstIn?.toISOString() ?? "", record.lastOut?.toISOString() ?? "", record.workingHours, record.lateMinutes, record.earlyOutMinutes, record.overtimeHours, record.attendanceStatus, record.device?.deviceName ?? "", record.source, record.approvalStatus]));
+});
+
+router.get("/attendance-records/export.xlsx", requireRoles(...manageRoles, Role.ACCOUNTANT, Role.AUDITOR), async (req, res) => {
+  const records = await prisma.attendanceRecord.findMany({ include: { employee: { include: { department: true } }, device: true }, orderBy: [{ workDate: "desc" }, { employee: { employeeCode: "asc" } }], take: 5000 });
+  const headers = ["Employee ID", "Employee Name", "Department", "Date", "Shift", "First In", "Last Out", "Working Hours", "Late Minutes", "Early Out Minutes", "Overtime Hours", "Status", "Device", "Source", "Approval"];
+  await audit(req, "EXPORT", "AttendanceRecord", undefined, { format: "XLSX", count: records.length });
+  await xlsxFile(res, "biometric-attendance-records.xlsx", headers, records.map((record) => [record.employee.employeeCode, `${record.employee.firstName} ${record.employee.lastName}`, record.employee.department.name, record.workDate.toISOString().slice(0, 10), record.shift ?? "", record.firstIn?.toISOString() ?? "", record.lastOut?.toISOString() ?? "", String(record.workingHours), record.lateMinutes, record.earlyOutMinutes, String(record.overtimeHours), record.attendanceStatus, record.device?.deviceName ?? "", record.source, record.approvalStatus]), "Attendance");
 });
 
 router.get("/sync-history", requireRoles(...manageRoles, Role.AUDITOR), async (_req, res) => {

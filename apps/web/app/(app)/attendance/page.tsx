@@ -1,4 +1,5 @@
 import { AttendanceImport } from "@/components/ModuleActions";
+import { TableToolbar } from "@/components/DataTableControls";
 import { apiFetch } from "@/lib/api";
 
 type Attendance = {
@@ -18,12 +19,17 @@ export default async function AttendancePage() {
 
   return (
     <>
-      <div className="page-head">
-        <div>
-          <h1 className="page-title">Attendance</h1>
-          <p className="muted">Biometric imports, employee matching, check-in/out, late minutes, overtime, and absences.</p>
-        </div>
-      </div>
+      <TableToolbar
+        title="Attendance"
+        count={`${records.length} records`}
+        actions={[
+          { label: "CSV Template", href: "/api/backend/attendance/template.csv", icon: "template" },
+          { label: "Excel Template", href: "/api/backend/attendance/template.xlsx", icon: "template" },
+          { label: "Export CSV", href: "/api/backend/attendance/export.csv", icon: "export" },
+          { label: "Export Excel", href: "/api/backend/attendance/export.xlsx", icon: "export" }
+        ]}
+        searchPlaceholder="Search attendance..."
+      />
       <AttendanceImport />
       <div style={{ height: 16 }} />
       <div className="table-wrap">

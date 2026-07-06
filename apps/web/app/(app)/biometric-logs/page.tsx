@@ -44,7 +44,7 @@ export default async function BiometricLogsPage() {
       <TableToolbar
         title="Biometric Device Logs"
         count={`${logs.length} records`}
-        actions={[{ label: "Devices", href: "/biometric-devices", icon: "columns" }, { label: "Attendance Records", href: "/biometric-attendance", icon: "more" }, { label: "Print", icon: "print" }, { label: "Export", icon: "export" }]}
+        actions={[{ label: "Devices", href: "/biometric-devices", icon: "columns" }, { label: "Attendance Records", href: "/biometric-attendance", icon: "more" }, { label: "Export CSV", href: "/api/backend/biometrics/raw-logs/export.csv", icon: "export" }, { label: "Export Excel", href: "/api/backend/biometrics/raw-logs/export.xlsx", icon: "export" }, { label: "Print", icon: "print" }]}
         searchPlaceholder="Search logs..."
       />
       <div className="table-wrap">

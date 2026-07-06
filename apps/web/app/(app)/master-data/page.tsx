@@ -14,6 +14,10 @@ export default async function MasterDataPage() {
         count={`${records.length} records`}
         searchPlaceholder="Search master data"
         actions={[
+          { label: "CSV Template", href: "/api/backend/master-data/template.csv", icon: "template" },
+          { label: "Excel Template", href: "/api/backend/master-data/template.xlsx", icon: "template" },
+          { label: "Export CSV", href: "/api/backend/master-data/export.csv", icon: "export" },
+          { label: "Export Excel", href: "/api/backend/master-data/export.xlsx", icon: "export" },
           { label: "Department Groups", href: "/group-management?type=DEPARTMENT", icon: "columns" },
           { label: "Leave Groups", href: "/group-management?type=LEAVE", icon: "columns" }
         ]}

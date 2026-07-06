@@ -5,7 +5,7 @@ import { prisma } from "../lib/prisma.js";
 import { requireAuth } from "../middleware/auth.js";
 import { requireRoles } from "../middleware/rbac.js";
 import { audit } from "../utils/audit.js";
-import { csvTemplate, numberValue, rowsFromUpload, type UploadRow } from "../utils/uploadParsers.js";
+import { csvFile, csvTemplate, numberValue, rowsFromUpload, type UploadRow, xlsxTemplate } from "../utils/uploadParsers.js";
 
 const router = Router();
 const importRoles: Role[] = [Role.SUPER_ADMIN, Role.ADMIN, Role.HR_MANAGER, Role.HR_OFFICER, Role.HR];
@@ -141,10 +141,8 @@ router.get("/template.csv", requireRoles(...importRoles), (_req, res) => {
   res.send(csvTemplate(headers));
 });
 
-router.get("/template.xlsx", requireRoles(...importRoles), (_req, res) => {
-  res.header("Content-Type", "text/csv");
-  res.attachment("employee-import-template.xlsx.csv");
-  res.send(csvTemplate(headers));
+router.get("/template.xlsx", requireRoles(...importRoles), async (_req, res) => {
+  await xlsxTemplate(res, "employee-import-template.xlsx", headers, "Employees");
 });
 
 router.post("/validate", requireRoles(...importRoles), async (req, res, next) => {
@@ -241,12 +239,10 @@ router.get("/exports/employees.csv", requireRoles(...importRoles, Role.AUDITOR, 
   const rows = employees.map((e) => {
     const gross = Number(e.basicSalary) + Number(e.housingAllowance) + Number(e.transportAllowance) + Number(e.otherAllowance);
     const base = [e.employeeCode, `${e.firstName} ${e.lastName}`, e.fullNameArabic ?? "", e.department.name, e.jobTitle, e.branch ?? "", e.joiningDate.toISOString().slice(0, 10), e.status, e.phone ?? "", e.companyEmail ?? e.email, e.nationality ?? "", canSeeSalary ? e.nationalId : mask(e.nationalId), canSeeSalary ? e.passportNumber ?? "" : mask(e.passportNumber), canSeeSalary ? e.gosiNumber ?? "" : mask(e.gosiNumber), e.qiwaReference ?? "", canSeeSalary ? e.iban ?? "" : mask(e.iban)];
-    return (canSeeSalary ? [...base, e.basicSalary, e.housingAllowance, e.transportAllowance, e.otherAllowance, gross.toFixed(2), e.bankName ?? ""] : base).join(",");
+    return canSeeSalary ? [...base, e.basicSalary, e.housingAllowance, e.transportAllowance, e.otherAllowance, gross.toFixed(2), e.bankName ?? ""] : base;
   });
   await audit(req, "EMPLOYEE_EXPORT", "Employee", undefined, { format: "CSV", count: employees.length, confidential: canSeeSalary });
-  res.header("Content-Type", "text/csv");
-  res.attachment("employee-master-export.csv");
-  res.send([exportHeaders.join(","), ...rows].join("\n"));
+  csvFile(res, "employee-master-export.csv", exportHeaders, rows);
 });
 
 export default router;

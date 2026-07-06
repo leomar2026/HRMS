@@ -7,8 +7,10 @@ import { prisma } from "../lib/prisma.js";
 import { requireAuth } from "../middleware/auth.js";
 import { requireRoles } from "../middleware/rbac.js";
 import { audit } from "../utils/audit.js";
+import { csvFile, csvTemplate, xlsxFile, xlsxTemplate } from "../utils/uploadParsers.js";
 
 const router = Router();
+const attendanceHeaders = ["employeeCode", "checkIn", "checkOut"];
 
 const importSchema = z.object({
   content: z.string().optional(),
@@ -70,6 +72,30 @@ router.use(requireAuth);
 router.get("/", requireRoles(Role.ADMIN, Role.HR, Role.ACCOUNTANT), async (_req, res) => {
   const records = await prisma.attendance.findMany({ include: { employee: true }, orderBy: { workDate: "desc" }, take: 100 });
   res.json(records);
+});
+
+router.get("/template.csv", requireRoles(Role.ADMIN, Role.HR), (_req, res) => {
+  res.header("Content-Type", "text/csv");
+  res.attachment("attendance-import-template.csv");
+  res.send(csvTemplate(attendanceHeaders));
+});
+
+router.get("/template.xlsx", requireRoles(Role.ADMIN, Role.HR), async (_req, res) => {
+  await xlsxTemplate(res, "attendance-import-template.xlsx", attendanceHeaders, "Attendance");
+});
+
+router.get("/export.csv", requireRoles(Role.ADMIN, Role.HR, Role.ACCOUNTANT, Role.AUDITOR), async (req, res) => {
+  const records = await prisma.attendance.findMany({ include: { employee: { include: { department: true } } }, orderBy: { workDate: "desc" }, take: 2000 });
+  const headers = ["Employee Code", "Employee Name", "Department", "Date", "Check In", "Check Out", "Late Minutes", "Overtime Hours", "Source", "Status"];
+  await audit(req, "EXPORT", "Attendance", undefined, { format: "CSV", count: records.length });
+  csvFile(res, "attendance-export.csv", headers, records.map((record) => [record.employee.employeeCode, `${record.employee.firstName} ${record.employee.lastName}`, record.employee.department.name, record.workDate.toISOString().slice(0, 10), record.checkIn?.toISOString() ?? "", record.checkOut?.toISOString() ?? "", record.lateMinutes, record.overtimeHours, record.source, record.status]));
+});
+
+router.get("/export.xlsx", requireRoles(Role.ADMIN, Role.HR, Role.ACCOUNTANT, Role.AUDITOR), async (req, res) => {
+  const records = await prisma.attendance.findMany({ include: { employee: { include: { department: true } } }, orderBy: { workDate: "desc" }, take: 2000 });
+  const headers = ["Employee Code", "Employee Name", "Department", "Date", "Check In", "Check Out", "Late Minutes", "Overtime Hours", "Source", "Status"];
+  await audit(req, "EXPORT", "Attendance", undefined, { format: "XLSX", count: records.length });
+  await xlsxFile(res, "attendance-export.xlsx", headers, records.map((record) => [record.employee.employeeCode, `${record.employee.firstName} ${record.employee.lastName}`, record.employee.department.name, record.workDate.toISOString().slice(0, 10), record.checkIn?.toISOString() ?? "", record.checkOut?.toISOString() ?? "", record.lateMinutes, String(record.overtimeHours), record.source, record.status]), "Attendance");
 });
 
 router.post("/import", requireRoles(Role.ADMIN, Role.HR), async (req, res, next) => {

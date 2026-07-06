@@ -1,4 +1,5 @@
 import { apiFetch } from "@/lib/api";
+import { TableToolbar } from "@/components/DataTableControls";
 
 type AuditLog = {
   id: string;
@@ -14,12 +15,16 @@ export default async function AuditLogsPage() {
 
   return (
     <>
-      <div className="page-head">
-        <div>
-          <h1 className="page-title">Audit Logs</h1>
-          <p className="muted">Security and operational event trail.</p>
-        </div>
-      </div>
+      <TableToolbar
+        title="Audit Logs"
+        count={`${logs.length} records`}
+        actions={[
+          { label: "Export CSV", href: "/api/backend/audit-logs/export.csv", icon: "export" },
+          { label: "Export Excel", href: "/api/backend/audit-logs/export.xlsx", icon: "export" },
+          { label: "Print", icon: "print" }
+        ]}
+        searchPlaceholder="Search audit logs..."
+      />
       <div className="table-wrap">
         <table>
           <thead><tr><th>Time</th><th>User</th><th>Action</th><th>Entity</th><th>Entity ID</th></tr></thead>

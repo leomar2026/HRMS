@@ -5,6 +5,7 @@ import { getMudadStatus } from "../services/mudadService.js";
 import { getQiwaStatus } from "../services/qiwaService.js";
 import { getCurrentCompanyProfile, payslipCompanyFromProfile } from "../utils/companyProfile.js";
 import { renderPayslipPdf } from "../utils/payslipRenderer.js";
+import { xlsxFile, xlsxTemplate } from "../utils/uploadParsers.js";
 
 export const previewRouter = Router();
 
@@ -68,6 +69,14 @@ const omEmployee = {
 };
 
 previewRouter.use(requireAuth);
+
+function blockEmployeePreviewExport(req: { user?: { role?: string } }, res: { status: (status: number) => { json: (body: unknown) => void } }) {
+  if (req.user?.role === "EMPLOYEE") {
+    res.status(403).json({ message: "You do not have permission to export confidential data." });
+    return true;
+  }
+  return false;
+}
 
 previewRouter.get("/employees", (_req, res) => res.json({ items: [employee, { ...selfServiceEmployee, user: { id: "preview-employee-user", role: "EMPLOYEE", portalStatus: "ACTIVE" } }, { ...managerEmployee, user: { id: "preview-manager-user", role: "DEPARTMENT_MANAGER", portalStatus: "ACTIVE" } }, { ...omEmployee, user: { id: "preview-om-user", role: "OPERATIONS_MANAGER", portalStatus: "ACTIVE" } }], total: 4, page: 1, pageSize: 25 }));
 previewRouter.post("/employees", (req, res) => res.status(201).json({
@@ -212,6 +221,21 @@ previewRouter.get("/departments", (_req, res) => res.json([
   { id: "preview-dept-8", code: "IT", name: "IT", _count: { employees: 0 } },
   { id: "preview-dept-9", code: "ADM", name: "Administrative", _count: { employees: 0 } }
 ]));
+previewRouter.get("/departments/template.csv", (_req, res) => {
+  res.header("Content-Type", "text/csv");
+  res.send("code,name\n");
+});
+previewRouter.get("/departments/template.xlsx", async (_req, res) => {
+  await xlsxTemplate(res, "department-template.xlsx", ["code", "name"], "Departments");
+});
+previewRouter.get("/departments/export.csv", (_req, res) => {
+  res.header("Content-Type", "text/csv");
+  res.send("code,name,employeeCount\nHR,Human Resources,1\nOPS,Operations,2\nSAL,Sales,1");
+});
+previewRouter.get("/departments/export.xlsx", async (_req, res) => {
+  await xlsxFile(res, "departments-export.xlsx", ["code", "name", "employeeCount"], [["HR", "Human Resources", 1], ["OPS", "Operations", 2], ["SAL", "Sales", 1]], "Departments");
+});
+previewRouter.post("/departments/import", (_req, res) => res.status(201).json({ message: "Import completed successfully.", createdCount: 1, updatedCount: 0, failedCount: 0, errors: [] }));
 
 previewRouter.get("/attendance", (_req, res) => res.json([
   {
@@ -226,6 +250,20 @@ previewRouter.get("/attendance", (_req, res) => res.json([
     employee
   }
 ]));
+previewRouter.get("/attendance/template.csv", (_req, res) => {
+  res.header("Content-Type", "text/csv");
+  res.send("employeeCode,checkIn,checkOut\n");
+});
+previewRouter.get("/attendance/template.xlsx", async (_req, res) => {
+  await xlsxTemplate(res, "attendance-import-template.xlsx", ["employeeCode", "checkIn", "checkOut"], "Attendance");
+});
+previewRouter.get("/attendance/export.csv", (_req, res) => {
+  res.header("Content-Type", "text/csv");
+  res.send("Employee Code,Employee Name,Department,Date,Check In,Check Out,Late Minutes,Overtime Hours,Source,Status\nEMP-001,Admin User,Human Resources,2026-06-01,2026-06-01T05:07:00.000Z,2026-06-01T14:45:00.000Z,7,0.75,BIOMETRIC,PRESENT");
+});
+previewRouter.get("/attendance/export.xlsx", async (_req, res) => {
+  await xlsxFile(res, "attendance-export.xlsx", ["Employee Code", "Employee Name", "Department", "Date", "Check In", "Check Out", "Late Minutes", "Overtime Hours", "Source", "Status"], [["EMP-001", "Admin User", "Human Resources", "2026-06-01", "2026-06-01T05:07:00.000Z", "2026-06-01T14:45:00.000Z", 7, 0.75, "BIOMETRIC", "PRESENT"]], "Attendance");
+});
 
 previewRouter.post("/attendance/import", (_req, res) => res.json({
   imported: 1,
@@ -285,7 +323,21 @@ previewRouter.post("/biometrics/mappings", (req, res) => res.status(201).json({ 
 previewRouter.patch("/biometrics/mappings/:id", (req, res) => res.json({ ...biometricMappings[0], id: req.params.id, ...req.body }));
 previewRouter.delete("/biometrics/mappings/:id", (req, res) => res.json({ id: req.params.id, active: false }));
 previewRouter.get("/biometrics/raw-logs", (_req, res) => res.json(biometricRawLogs));
+previewRouter.get("/biometrics/raw-logs/export.csv", (_req, res) => {
+  res.header("Content-Type", "text/csv");
+  res.send("Device,Device User ID,Employee ID,Employee Name,Department,Punch Date,Punch Time,Punch Type,Verification Type,Work Code,Serial,IP,Sync Time,Raw Reference,Processing Status,Error\nMain Entrance ZKTeco,EMP-002,EMP-002,Employee User,Operations,2026-06-01,2026-06-01T05:02:00.000Z,CHECK_IN,Fingerprint,,ZK-PREVIEW-001,192.168.1.201,2026-06-01T05:05:00.000Z,preview-raw-1,PROCESSED,");
+});
+previewRouter.get("/biometrics/raw-logs/export.xlsx", async (_req, res) => {
+  await xlsxFile(res, "biometric-raw-logs.xlsx", ["Device", "Device User ID", "Employee ID", "Employee Name", "Department", "Punch Date", "Punch Time", "Punch Type", "Verification Type", "Work Code", "Serial", "IP", "Sync Time", "Raw Reference", "Processing Status", "Error"], [["Main Entrance ZKTeco", "EMP-002", "EMP-002", "Employee User", "Operations", "2026-06-01", "2026-06-01T05:02:00.000Z", "CHECK_IN", "Fingerprint", "", "ZK-PREVIEW-001", "192.168.1.201", "2026-06-01T05:05:00.000Z", "preview-raw-1", "PROCESSED", ""]], "Raw Logs");
+});
 previewRouter.get("/biometrics/attendance-records", (_req, res) => res.json(biometricAttendanceRecords));
+previewRouter.get("/biometrics/attendance-records/export.csv", (_req, res) => {
+  res.header("Content-Type", "text/csv");
+  res.send("Employee ID,Employee Name,Department,Date,Shift,First In,Last Out,Working Hours,Late Minutes,Early Out Minutes,Overtime Hours,Status,Device,Source,Approval\nEMP-002,Employee User,Operations,2026-06-01,Day Shift,2026-06-01T05:02:00.000Z,2026-06-01T14:15:00.000Z,9.22,2,0,0.25,LATE,Main Entrance ZKTeco,BIOMETRIC,DRAFT");
+});
+previewRouter.get("/biometrics/attendance-records/export.xlsx", async (_req, res) => {
+  await xlsxFile(res, "biometric-attendance-records.xlsx", ["Employee ID", "Employee Name", "Department", "Date", "Shift", "First In", "Last Out", "Working Hours", "Late Minutes", "Early Out Minutes", "Overtime Hours", "Status", "Device", "Source", "Approval"], [["EMP-002", "Employee User", "Operations", "2026-06-01", "Day Shift", "2026-06-01T05:02:00.000Z", "2026-06-01T14:15:00.000Z", "9.22", 2, 0, "0.25", "LATE", "Main Entrance ZKTeco", "BIOMETRIC", "DRAFT"]], "Attendance");
+});
 previewRouter.get("/biometrics/sync-history", (_req, res) => res.json([{ id: "preview-sync-1", device: biometricDevice, startedAt: new Date().toISOString(), finishedAt: new Date().toISOString(), status: "COMPLETED", pulledCount: 2, processedCount: 1, unmatchedCount: 1, duplicateCount: 0, triggeredBy: "admin@company.sa" }]));
 previewRouter.get("/biometrics/error-logs", (_req, res) => res.json([{ id: "preview-error-1", device: biometricDevice, action: "PROCESS_PUNCH", message: "No employee mapping found for EMP-999", createdAt: new Date().toISOString() }]));
 
@@ -524,6 +576,21 @@ previewRouter.get("/master-data", (req, res) => {
   const type = typeof req.query.type === "string" ? req.query.type : undefined;
   res.json(type ? previewMasterData.filter((record) => record.type === type) : previewMasterData);
 });
+previewRouter.get("/master-data/template.csv", (_req, res) => {
+  res.header("Content-Type", "text/csv");
+  res.send("type,code,name,nameArabic,active\n");
+});
+previewRouter.get("/master-data/template.xlsx", async (_req, res) => {
+  await xlsxTemplate(res, "master-data-template.xlsx", ["type", "code", "name", "nameArabic", "active"], "Master Data");
+});
+previewRouter.get("/master-data/export.csv", (_req, res) => {
+  res.header("Content-Type", "text/csv");
+  res.send(["type,code,name,nameArabic,active", ...previewMasterData.map((record) => `${record.type},${record.code},${record.name},,${record.active}`)].join("\n"));
+});
+previewRouter.get("/master-data/export.xlsx", async (_req, res) => {
+  await xlsxFile(res, "master-data-export.xlsx", ["type", "code", "name", "nameArabic", "active"], previewMasterData.map((record) => [record.type, record.code, record.name, "", record.active]), "Master Data");
+});
+previewRouter.post("/master-data/import", (_req, res) => res.status(201).json({ message: "Import completed successfully.", createdCount: 1, updatedCount: 0, failedCount: 0, errors: [] }));
 previewRouter.post("/master-data", (req, res) => res.status(201).json({ id: "md-new", ...req.body }));
 previewRouter.patch("/master-data/:id", (req, res) => res.json({ id: req.params.id, ...req.body }));
 previewRouter.delete("/master-data/:id", (req, res) => res.json({ id: req.params.id, archivedAt: new Date().toISOString() }));
@@ -704,9 +771,8 @@ previewRouter.get("/employee-imports/template.csv", (_req, res) => {
   res.header("Content-Type", "text/csv");
   res.send("Employee Code,Employee Name English,Employee Name Arabic,First Name,Middle Name,Last Name,Nationality,Gender,Date of Birth,Marital Status,Religion,Mobile Number,Personal Email,Company Email,Address,Emergency Contact Name,Emergency Contact Number,Iqama Number,Iqama Expiry Date,National ID Number,Passport Number,Passport Expiry Date,Visa Number,Visa Expiry Date,GOSI Number,QIWA Employee Reference,Joining Date,Probation Start Date,Probation End Date,Employee Status,Employee Type,Contract Type,Contract Start Date,Contract End Date,Department,Designation,Job Grade,Branch,Location,Cost Center,Reporting Manager,Shift,Weekly Off Days,Basic Salary,Housing Allowance,Transportation Allowance,Other Allowance,Gross Salary,Bank Name,IBAN,Payment Method,User Login Email,Employee Portal Access,Document Reference,Notes,Remarks\n");
 });
-previewRouter.get("/employee-imports/template.xlsx", (_req, res) => {
-  res.header("Content-Type", "text/csv");
-  res.send("Employee Code,Employee Name English,Department,Designation,Joining Date,Basic Salary\n");
+previewRouter.get("/employee-imports/template.xlsx", async (_req, res) => {
+  await xlsxTemplate(res, "employee-import-template.xlsx", ["Employee Code", "Employee Name English", "Department", "Designation", "Joining Date", "Basic Salary"], "Employees");
 });
 previewRouter.post("/employee-imports/validate", (_req, res) => res.json({
   valid: true,
@@ -731,8 +797,10 @@ previewRouter.post("/employee-imports", (_req, res) => res.status(201).json({
 previewRouter.get("/employee-imports/history", (_req, res) => res.json([
   { id: "preview-import-1", batchNumber: "EMP-IMP-PREVIEW", fileName: "preview.csv", mode: "CREATE_AND_UPDATE", status: "IMPORTED", totalRows: 1, createdCount: 1, updatedCount: 0, failedCount: 0, duplicateCount: 0, createdAt: new Date().toISOString(), rows: [] }
 ]));
-previewRouter.get("/employee-imports/exports/employees.csv", (_req, res) => {
+previewRouter.get("/employee-imports/exports/employees.csv", (req, res) => {
+  if (blockEmployeePreviewExport(req, res)) return;
   res.header("Content-Type", "text/csv");
+  res.attachment("employee-master-export.csv");
   res.send("Employee Code,Name English,Department,Designation,Status\nEMP-001,Admin User,Human Resources,HRMS Administrator,ACTIVE\nEMP-002,Employee User,Operations,Operations Specialist,ACTIVE");
 });
 
@@ -765,3 +833,10 @@ previewRouter.get("/groups/:id/export-members.csv", (_req, res) => {
 previewRouter.get("/audit-logs", (_req, res) => res.json([
   { id: "preview-audit-1", userId: "preview-admin", action: "LOGIN", entity: "User", entityId: "preview-admin", createdAt: new Date().toISOString() }
 ]));
+previewRouter.get("/audit-logs/export.csv", (_req, res) => {
+  res.header("Content-Type", "text/csv");
+  res.send("Created At,User ID,Module,Action,Entity ID,IP Address,Device\n2026-06-30T00:00:00Z,preview-admin,User,LOGIN,preview-admin,127.0.0.1,Preview");
+});
+previewRouter.get("/audit-logs/export.xlsx", async (_req, res) => {
+  await xlsxFile(res, "audit-logs-export.xlsx", ["Created At", "User ID", "Module", "Action", "Entity ID", "IP Address", "Device"], [["2026-06-30T00:00:00Z", "preview-admin", "User", "LOGIN", "preview-admin", "127.0.0.1", "Preview"]], "Audit Logs");
+});

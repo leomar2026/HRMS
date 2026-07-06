@@ -7,6 +7,7 @@ import { requireAuth } from "../middleware/auth.js";
 import { requireRoles } from "../middleware/rbac.js";
 import { audit } from "../utils/audit.js";
 import { defaultPreviewCompanyProfile, getPreviewCompanyProfile, updatePreviewCompanyProfile } from "../utils/previewCompanyProfile.js";
+import { csvFile, csvTemplate, rowsFromUpload, xlsxFile, xlsxTemplate } from "../utils/uploadParsers.js";
 
 const router = Router();
 
@@ -35,12 +36,61 @@ const companyProfileSchema = z.object({
   documentCompanyMode: z.enum(["CURRENT", "APPROVAL_TIME"]).default("CURRENT")
 });
 
+const headers = ["companyName", "companyNameArabic", "registrationNumber", "vatNumber", "address", "city", "country", "phone", "fax", "email", "website", "gosiNumber", "qiwaReference", "bankDetails", "authorizedSignatory", "documentCompanyMode"];
+
 router.use(requireAuth);
 
 router.get("/", async (_req, res) => {
   if (env.HRMS_PREVIEW_MODE) return res.json(getPreviewCompanyProfile());
   const profile = await prisma.companyProfile.findUnique({ where: { id: "default" } });
   res.json(profile ?? { ...defaultPreviewCompanyProfile, companyName: "Company HR Portal" });
+});
+
+router.get("/template.csv", requireRoles(Role.SUPER_ADMIN, Role.ADMIN, Role.HR_MANAGER), (_req, res) => {
+  res.header("Content-Type", "text/csv");
+  res.attachment("company-profile-template.csv");
+  res.send(csvTemplate(headers));
+});
+
+router.get("/template.xlsx", requireRoles(Role.SUPER_ADMIN, Role.ADMIN, Role.HR_MANAGER), async (_req, res) => {
+  await xlsxTemplate(res, "company-profile-template.xlsx", headers, "Company Profile");
+});
+
+router.get("/export.csv", requireRoles(Role.SUPER_ADMIN, Role.ADMIN, Role.HR_MANAGER), async (req, res) => {
+  const profile = env.HRMS_PREVIEW_MODE ? getPreviewCompanyProfile() : await prisma.companyProfile.findUnique({ where: { id: "default" } });
+  const record = profile ?? { ...defaultPreviewCompanyProfile, companyName: "Company HR Portal" };
+  await audit(req, "EXPORT", "CompanyProfile", "default", { format: "CSV", count: 1 });
+  csvFile(res, "company-profile-export.csv", headers, [headers.map((header) => (record as Record<string, unknown>)[header] ?? "")]);
+});
+
+router.get("/export.xlsx", requireRoles(Role.SUPER_ADMIN, Role.ADMIN, Role.HR_MANAGER), async (req, res) => {
+  const profile = env.HRMS_PREVIEW_MODE ? getPreviewCompanyProfile() : await prisma.companyProfile.findUnique({ where: { id: "default" } });
+  const record = profile ?? { ...defaultPreviewCompanyProfile, companyName: "Company HR Portal" };
+  await audit(req, "EXPORT", "CompanyProfile", "default", { format: "XLSX", count: 1 });
+  await xlsxFile(res, "company-profile-export.xlsx", headers, [headers.map((header) => (record as Record<string, unknown>)[header] ?? "")], "Company Profile");
+});
+
+router.post("/import", requireRoles(Role.SUPER_ADMIN, Role.ADMIN, Role.HR_MANAGER), async (req, res, next) => {
+  try {
+    const rows = await rowsFromUpload(req.body);
+    if (!rows.length) return res.status(400).json({ message: "No valid records found to import." });
+    const missing = ["companyName"].filter((header) => !(header in rows[0]));
+    if (missing.length) return res.status(400).json({ message: "Template columns do not match required format.", errors: missing });
+    const body = companyProfileSchema.parse({ ...rows[0], documentCompanyMode: rows[0].documentCompanyMode || "CURRENT" });
+    const { deleteLogo, ...profileBody } = body;
+    const data = { ...profileBody, letterheadSettings: profileBody.letterheadSettings as Prisma.InputJsonValue | undefined };
+    if (env.HRMS_PREVIEW_MODE) {
+      const profile = updatePreviewCompanyProfile({ ...getPreviewCompanyProfile(), ...profileBody, updatedBy: req.user?.id, updatedAt: new Date().toISOString() });
+      await audit(req, "IMPORT", "CompanyProfile", "default", { format: req.body.fileName, count: 1 });
+      return res.status(201).json({ message: "Import completed successfully.", profile });
+    }
+    const previous = await prisma.companyProfile.findUnique({ where: { id: "default" } });
+    const profile = await prisma.companyProfile.upsert({ where: { id: "default" }, update: { ...data, updatedBy: req.user?.id }, create: { id: "default", ...data, updatedBy: req.user?.id } });
+    await audit(req, "IMPORT", "CompanyProfile", "default", { count: 1 }, previous ?? undefined, profile);
+    res.status(201).json({ message: "Import completed successfully.", profile });
+  } catch (error) {
+    next(error);
+  }
 });
 
 router.put("/", requireRoles(Role.SUPER_ADMIN, Role.ADMIN, Role.HR_MANAGER), async (req, res, next) => {
