@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bell, CalendarClock, ClipboardCheck, FileClock, LayoutDashboard, LogOut, Users } from "lucide-react";
+import { Bell, CalendarClock, ClipboardCheck, Clock, FileClock, LayoutDashboard, LogOut, Users } from "lucide-react";
 
 const managerLinks = [
   { href: "/manager/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/manager/my-team", label: "My Team", icon: Users },
   { href: "/manager/my-approvals", label: "My Approvals", icon: ClipboardCheck },
   { href: "/manager/leave-approvals", label: "Pending Approvals", icon: FileClock },
+  { href: "/manager/team-attendance", label: "Team Attendance", icon: Clock },
   { href: "/manager/team-calendar", label: "Team Calendar", icon: CalendarClock },
   { href: "/manager/team-balances", label: "Team Leave History", icon: FileClock },
   { href: "/employee/notifications", label: "Notifications", icon: Bell }
@@ -19,6 +20,7 @@ const omLinks = [
   { href: "/om/leave-approvals", label: "Pending OM Approvals", icon: ClipboardCheck },
   { href: "/manager/my-team", label: "My Team", icon: Users },
   { href: "/manager/my-approvals", label: "My Approvals", icon: FileClock },
+  { href: "/manager/team-attendance", label: "Team Attendance", icon: Clock },
   { href: "/manager/team-calendar", label: "Team Calendar", icon: CalendarClock },
   { href: "/employee/notifications", label: "Notifications", icon: Bell }
 ];

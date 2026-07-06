@@ -321,6 +321,41 @@ const managerTeam = [
     ]
   }
 ];
+const managerTeamAttendance = [
+  {
+    id: "preview-team-attendance-1",
+    workDate: "2026-06-01T00:00:00.000Z",
+    checkIn: "2026-06-01T05:02:00.000Z",
+    checkOut: "2026-06-01T14:15:00.000Z",
+    lateMinutes: 2,
+    overtimeHours: "0.25",
+    status: "PRESENT",
+    source: "BIOMETRIC",
+    employee: { ...selfServiceEmployee, department: selfServiceEmployee.department }
+  },
+  {
+    id: "preview-team-attendance-2",
+    workDate: "2026-06-01T00:00:00.000Z",
+    checkIn: "2026-06-01T05:20:00.000Z",
+    checkOut: "2026-06-01T14:45:00.000Z",
+    lateMinutes: 20,
+    overtimeHours: "0.75",
+    status: "PRESENT",
+    source: "BIOMETRIC",
+    employee: { id: "preview-employee-3", employeeCode: "EMP-003", firstName: "Team", lastName: "Member", department: { id: "preview-dept-7", name: "Sales", code: "SAL" } }
+  },
+  {
+    id: "preview-team-attendance-3",
+    workDate: "2026-06-02T00:00:00.000Z",
+    checkIn: null,
+    checkOut: null,
+    lateMinutes: 0,
+    overtimeHours: "0.00",
+    status: "ABSENT",
+    source: "SYSTEM",
+    employee: { id: "preview-employee-3", employeeCode: "EMP-003", firstName: "Team", lastName: "Member", department: { id: "preview-dept-7", name: "Sales", code: "SAL" } }
+  }
+];
 previewRouter.get("/manager/dashboard", (_req, res) => res.json({
   directReportsCount: managerTeam.length,
   directReports: managerTeam,
@@ -332,6 +367,7 @@ previewRouter.get("/manager/dashboard", (_req, res) => res.json({
 previewRouter.get("/manager/team", (_req, res) => res.json(managerTeam));
 previewRouter.get("/manager/leave-approvals", (_req, res) => res.json([managerLeave]));
 previewRouter.get("/manager/approvals", (_req, res) => res.json(managerTeam.flatMap((employee) => employee.leaves)));
+previewRouter.get("/manager/attendance", (_req, res) => res.json(managerTeamAttendance));
 previewRouter.patch("/manager/leave-approvals/:id/decision", (req, res) => res.json({ ...managerLeave, id: req.params.id, workflowStage: req.body.decision === "APPROVE" ? "PENDING_OM_APPROVAL" : req.body.decision === "RETURN_FOR_CORRECTION" ? "RETURNED_FOR_CORRECTION" : req.body.decision, comments: req.body.comments }));
 previewRouter.get("/om/leave-approvals", (_req, res) => res.json([{ ...managerLeave, workflowStage: "PENDING_OM_APPROVAL", omApproverId: omEmployee.id }]));
 previewRouter.patch("/om/leave-approvals/:id/decision", (req, res) => res.json({ ...managerLeave, id: req.params.id, workflowStage: req.body.decision === "APPROVE" ? "PENDING_HR_MANAGER_APPROVAL" : req.body.decision === "RETURN_FOR_CORRECTION" ? "RETURNED_FOR_CORRECTION" : req.body.decision, comments: req.body.comments }));

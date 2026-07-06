@@ -114,6 +114,28 @@ router.get("/approvals", async (req, res, next) => {
   }
 });
 
+router.get("/attendance", async (req, res, next) => {
+  try {
+    const managerId = requireManagerEmployeeId(req.user?.employeeId);
+    const directReports = await prisma.employee.findMany({
+      where: { managerId, archivedAt: null },
+      select: { id: true }
+    });
+    const employeeIds = directReports.map((employee) => employee.id);
+    if (!employeeIds.length) return res.json([]);
+
+    const records = await prisma.attendance.findMany({
+      where: { employeeId: { in: employeeIds } },
+      include: { employee: { include: { department: true } } },
+      orderBy: [{ workDate: "desc" }, { employee: { employeeCode: "asc" } }],
+      take: 200
+    });
+    res.json(records);
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.patch("/leave-approvals/:id/decision", async (req, res, next) => {
   try {
     const managerId = requireManagerEmployeeId(req.user?.employeeId);
