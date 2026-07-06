@@ -1,4 +1,4 @@
-import { BiometricDeviceForm, BiometricImportForm, DeviceActionButtons } from "@/components/BiometricActions";
+import { BiometricDeviceEditForm, BiometricDeviceForm, BiometricImportForm, DeviceActionButtons } from "@/components/BiometricActions";
 import { RowActionMenu, TableToolbar } from "@/components/DataTableControls";
 import { apiFetch } from "@/lib/api";
 
@@ -60,6 +60,7 @@ export default async function BiometricDevicesPage() {
                 <td>{device._count?.logs ?? 0}</td>
                 <td>
                   <DeviceActionButtons deviceId={device.id} />
+                  <BiometricDeviceEditForm device={device} />
                   <RowActionMenu actions={[
                     { label: "View device logs", href: "/biometric-logs" },
                     { label: "View attendance records", href: "/biometric-attendance" },
