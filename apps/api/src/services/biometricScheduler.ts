@@ -38,6 +38,8 @@ export function startBiometricScheduler() {
           await prisma.biometricErrorLog.create({ data: { deviceId: device.id, action: "SCHEDULED_SYNC", message } });
         }
       }
+    } catch (error) {
+      console.error("Biometric scheduler error", error);
     } finally {
       running = false;
     }
