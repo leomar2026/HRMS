@@ -1,4 +1,4 @@
-import { PrismaClient, Role } from "@prisma/client";
+import { BiometricConnectionType, BiometricDeviceStatus, PrismaClient, Role } from "@prisma/client";
 import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
@@ -247,6 +247,34 @@ async function main() {
       where: { type_code: { type, code } },
       update: { name },
       create: { type, code, name }
+    });
+  }
+
+  const biometricDevices = [
+    { deviceCode: "ZK-RUH-01", deviceName: "Riyadh ZKTeco Device", branch: "Riyadh", deviceLocation: "Riyadh Office" },
+    { deviceCode: "ZK-JED-01", deviceName: "Jeddah ZKTeco Device", branch: "Jeddah", deviceLocation: "Jeddah Office" },
+    { deviceCode: "ZK-DMM-01", deviceName: "Dammam ZKTeco Device", branch: "Dammam", deviceLocation: "Dammam Office" },
+    { deviceCode: "ZK-FAC-01", deviceName: "Factory ZKTeco Device", branch: "Factory", deviceLocation: "Factory" }
+  ];
+
+  for (const device of biometricDevices) {
+    await prisma.biometricDevice.upsert({
+      where: { deviceCode: device.deviceCode },
+      update: {
+        deviceName: device.deviceName,
+        branch: device.branch,
+        deviceLocation: device.deviceLocation,
+        status: BiometricDeviceStatus.ACTIVE
+      },
+      create: {
+        ...device,
+        brand: "ZKTeco",
+        connectionType: BiometricConnectionType.MANUAL_IMPORT,
+        timezone: "Asia/Riyadh",
+        status: BiometricDeviceStatus.ACTIVE,
+        syncIntervalMinutes: 15,
+        remarks: "Configure IP/port, ADMS, or BioTime settings before live sync."
+      }
     });
   }
 

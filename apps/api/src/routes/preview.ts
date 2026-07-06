@@ -234,27 +234,34 @@ previewRouter.post("/attendance/import", (_req, res) => res.json({
 
 previewRouter.post("/attendance/detect-absences", (_req, res) => res.json({ created: 0 }));
 
-const biometricDevice = {
-  id: "preview-zkteco-1",
-  deviceName: "Main Entrance ZKTeco",
-  deviceCode: "ZK-MAIN-01",
+const makeBiometricDevice = (id: string, deviceCode: string, deviceName: string, branch: string, deviceLocation: string, ipAddress: string) => ({
+  id,
+  deviceName,
+  deviceCode,
   brand: "ZKTeco",
   model: "K40",
-  serialNumber: "ZK-PREVIEW-001",
-  ipAddress: "192.168.1.201",
+  serialNumber: deviceCode,
+  ipAddress,
   port: 4370,
   connectionType: "MANUAL_IMPORT",
-  deviceLocation: "Main Entrance",
-  branch: "Riyadh",
+  deviceLocation,
+  branch,
   department: { id: "preview-dept-3", name: "Operations", code: "OPS" },
   timezone: "Asia/Riyadh",
   status: "ACTIVE",
   lastSyncAt: new Date().toISOString(),
-  connectionStatus: "CONNECTED",
+  connectionStatus: "NOT_TESTED",
   syncIntervalMinutes: 15,
-  remarks: "Preview manual import device",
-  _count: { logs: 3, mappings: 2 }
-};
+  remarks: "Configure IP/port, ADMS, or BioTime settings before live sync.",
+  _count: { logs: id === "preview-zkteco-ruh" ? 3 : 0, mappings: id === "preview-zkteco-ruh" ? 2 : 0 }
+});
+const biometricDevices = [
+  makeBiometricDevice("preview-zkteco-ruh", "ZK-RUH-01", "Riyadh ZKTeco Device", "Riyadh", "Riyadh Office", "192.168.1.201"),
+  makeBiometricDevice("preview-zkteco-jed", "ZK-JED-01", "Jeddah ZKTeco Device", "Jeddah", "Jeddah Office", "192.168.2.201"),
+  makeBiometricDevice("preview-zkteco-dmm", "ZK-DMM-01", "Dammam ZKTeco Device", "Dammam", "Dammam Office", "192.168.3.201"),
+  makeBiometricDevice("preview-zkteco-fac", "ZK-FAC-01", "Factory ZKTeco Device", "Factory", "Factory", "192.168.4.201")
+];
+const biometricDevice = biometricDevices[0];
 const biometricMappings = [
   { id: "preview-map-1", biometricId: "BIO-002", deviceUserId: "EMP-002", cardNumber: "1002", syncStatus: "SYNCED", lastPunchAt: "2026-06-01T05:02:00.000Z", active: true, employee: { ...selfServiceEmployee, department: selfServiceEmployee.department }, device: biometricDevice },
   { id: "preview-map-2", biometricId: "BIO-003", deviceUserId: "EMP-003", cardNumber: "1003", syncStatus: "SYNCED", lastPunchAt: "2026-06-01T05:20:00.000Z", active: true, employee: { id: "preview-employee-3", employeeCode: "EMP-003", firstName: "Team", lastName: "Member", department: { id: "preview-dept-7", name: "Sales", code: "SAL" } }, device: biometricDevice }
@@ -266,7 +273,7 @@ const biometricRawLogs = [
 const biometricAttendanceRecords = [
   { id: "preview-att-record-1", employee: { ...selfServiceEmployee, department: selfServiceEmployee.department }, workDate: "2026-06-01T00:00:00.000Z", shift: "Day Shift", firstIn: "2026-06-01T05:02:00.000Z", lastOut: "2026-06-01T14:15:00.000Z", workingHours: "9.22", lateMinutes: 2, earlyOutMinutes: 0, overtimeHours: "0.25", attendanceStatus: "LATE", device: biometricDevice, source: "BIOMETRIC", approvalStatus: "DRAFT" }
 ];
-previewRouter.get("/biometrics/devices", (_req, res) => res.json([biometricDevice]));
+previewRouter.get("/biometrics/devices", (_req, res) => res.json(biometricDevices));
 previewRouter.post("/biometrics/devices", (req, res) => res.status(201).json({ id: `preview-device-${Date.now()}`, connectionStatus: "NOT_TESTED", lastSyncAt: null, _count: { logs: 0, mappings: 0 }, ...req.body }));
 previewRouter.patch("/biometrics/devices/:id", (req, res) => res.json({ ...biometricDevice, id: req.params.id, ...req.body }));
 previewRouter.delete("/biometrics/devices/:id", (req, res) => res.json({ ...biometricDevice, id: req.params.id, status: "INACTIVE" }));
