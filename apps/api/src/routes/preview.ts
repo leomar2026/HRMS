@@ -282,15 +282,56 @@ const managerLeave = {
   employee: selfServiceEmployee,
   approvalHistory: [{ id: "hist-1", status: "PENDING", comments: "Submitted by employee", createdAt: new Date().toISOString() }]
 };
+const managerTeam = [
+  {
+    ...selfServiceEmployee,
+    managerId: managerEmployee.id,
+    branch: "Riyadh",
+    user: { role: "EMPLOYEE", portalStatus: "ACTIVE" },
+    leaves: [managerLeave]
+  },
+  {
+    id: "preview-employee-3",
+    employeeCode: "EMP-003",
+    nationalId: "1000000003",
+    firstName: "Team",
+    lastName: "Member",
+    email: "team.member@company.com",
+    phone: "+966555555555",
+    jobTitle: "Sales Engineer",
+    status: "ACTIVE",
+    leaveBalance: 18,
+    branch: "Jeddah",
+    managerId: managerEmployee.id,
+    department: { id: "preview-dept-7", name: "Sales", code: "SAL" },
+    user: { role: "EMPLOYEE", portalStatus: "ACTIVE" },
+    leaves: [
+      {
+        ...managerLeave,
+        id: "preview-employee-leave-2",
+        requestNumber: "LR-PREVIEW-002",
+        workflowStage: "FINAL_APPROVED",
+        status: "APPROVED",
+        employee: { id: "preview-employee-3", employeeCode: "EMP-003", firstName: "Team", lastName: "Member", department: { id: "preview-dept-7", name: "Sales", code: "SAL" } },
+        approvalHistory: [
+          { id: "hist-2", status: "PENDING", comments: "Submitted by employee", createdAt: new Date(Date.now() - 86400000).toISOString() },
+          { id: "hist-3", status: "APPROVED", comments: "Manager approved", createdAt: new Date().toISOString() }
+        ]
+      }
+    ]
+  }
+];
 previewRouter.get("/manager/dashboard", (_req, res) => res.json({
-  directReportsCount: 1,
-  directReports: [selfServiceEmployee],
+  directReportsCount: managerTeam.length,
+  directReports: managerTeam,
   pendingLeaves: [managerLeave],
   employeesCurrentlyOnLeave: 0,
   employeesScheduledForLeave: 1,
   recentApprovals: []
 }));
+previewRouter.get("/manager/team", (_req, res) => res.json(managerTeam));
 previewRouter.get("/manager/leave-approvals", (_req, res) => res.json([managerLeave]));
+previewRouter.get("/manager/approvals", (_req, res) => res.json(managerTeam.flatMap((employee) => employee.leaves)));
 previewRouter.patch("/manager/leave-approvals/:id/decision", (req, res) => res.json({ ...managerLeave, id: req.params.id, workflowStage: req.body.decision === "APPROVE" ? "PENDING_OM_APPROVAL" : req.body.decision === "RETURN_FOR_CORRECTION" ? "RETURNED_FOR_CORRECTION" : req.body.decision, comments: req.body.comments }));
 previewRouter.get("/om/leave-approvals", (_req, res) => res.json([{ ...managerLeave, workflowStage: "PENDING_OM_APPROVAL", omApproverId: omEmployee.id }]));
 previewRouter.patch("/om/leave-approvals/:id/decision", (req, res) => res.json({ ...managerLeave, id: req.params.id, workflowStage: req.body.decision === "APPROVE" ? "PENDING_HR_MANAGER_APPROVAL" : req.body.decision === "RETURN_FOR_CORRECTION" ? "RETURNED_FOR_CORRECTION" : req.body.decision, comments: req.body.comments }));

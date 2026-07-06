@@ -6,8 +6,9 @@ import { Bell, CalendarClock, ClipboardCheck, FileClock, LayoutDashboard, LogOut
 
 const managerLinks = [
   { href: "/manager/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/manager/leave-approvals", label: "Team Leave Requests", icon: Users },
-  { href: "/manager/leave-approvals", label: "My Leave Approvals", icon: ClipboardCheck },
+  { href: "/manager/my-team", label: "My Team", icon: Users },
+  { href: "/manager/my-approvals", label: "My Approvals", icon: ClipboardCheck },
+  { href: "/manager/leave-approvals", label: "Pending Approvals", icon: FileClock },
   { href: "/manager/team-calendar", label: "Team Calendar", icon: CalendarClock },
   { href: "/manager/team-balances", label: "Team Leave History", icon: FileClock },
   { href: "/employee/notifications", label: "Notifications", icon: Bell }
@@ -16,7 +17,8 @@ const managerLinks = [
 const omLinks = [
   { href: "/om/leave-approvals", label: "Dashboard", icon: LayoutDashboard },
   { href: "/om/leave-approvals", label: "Pending OM Approvals", icon: ClipboardCheck },
-  { href: "/manager/leave-approvals", label: "Team Leave Requests", icon: Users },
+  { href: "/manager/my-team", label: "My Team", icon: Users },
+  { href: "/manager/my-approvals", label: "My Approvals", icon: FileClock },
   { href: "/manager/team-calendar", label: "Team Calendar", icon: CalendarClock },
   { href: "/employee/notifications", label: "Notifications", icon: Bell }
 ];

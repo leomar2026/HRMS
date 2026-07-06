@@ -51,6 +51,38 @@ router.get("/dashboard", async (req, res, next) => {
   }
 });
 
+router.get("/team", async (req, res, next) => {
+  try {
+    const managerId = requireManagerEmployeeId(req.user?.employeeId);
+    const directReports = await prisma.employee.findMany({
+      where: { managerId, archivedAt: null },
+      include: {
+        department: true,
+        user: { select: { role: true, portalStatus: true } },
+        leaves: {
+          orderBy: { createdAt: "desc" },
+          take: 3,
+          select: {
+            id: true,
+            requestNumber: true,
+            type: true,
+            startDate: true,
+            endDate: true,
+            days: true,
+            status: true,
+            workflowStage: true,
+            createdAt: true
+          }
+        }
+      },
+      orderBy: { employeeCode: "asc" }
+    });
+    res.json(directReports);
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.get("/leave-approvals", async (req, res, next) => {
   try {
     const managerId = requireManagerEmployeeId(req.user?.employeeId);
@@ -58,6 +90,23 @@ router.get("/leave-approvals", async (req, res, next) => {
       where: { managerId },
       include: { employee: { include: { department: true } }, approvalHistory: { orderBy: { createdAt: "asc" } } },
       orderBy: { createdAt: "desc" }
+    });
+    res.json(leaves);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get("/approvals", async (req, res, next) => {
+  try {
+    const managerId = requireManagerEmployeeId(req.user?.employeeId);
+    const leaves = await prisma.leaveRequest.findMany({
+      where: { managerId },
+      include: {
+        employee: { include: { department: true } },
+        approvalHistory: { orderBy: { createdAt: "asc" } }
+      },
+      orderBy: [{ status: "asc" }, { createdAt: "desc" }]
     });
     res.json(leaves);
   } catch (error) {
