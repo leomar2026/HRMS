@@ -1,4 +1,5 @@
 import { RowActionMenu, TableToolbar } from "@/components/DataTableControls";
+import { ProfileAvatar } from "@/components/ProfilePhoto";
 import { apiFetch } from "@/lib/api";
 
 type TeamMember = {
@@ -9,6 +10,8 @@ type TeamMember = {
   email: string;
   phone?: string;
   jobTitle: string;
+  photoUrl?: string;
+  profilePhotoPath?: string;
   branch?: string;
   status: string;
   leaveBalance: number;
@@ -58,7 +61,7 @@ export default async function MyTeamPage() {
                 <tr key={employee.id}>
                   <td><input aria-label={`Select ${employee.employeeCode}`} type="checkbox" /></td>
                   <td>{employee.employeeCode}</td>
-                  <td>{employee.firstName} {employee.lastName}</td>
+                  <td><div className="employee-identity"><ProfileAvatar employee={employee} size={34} /><span>{employee.firstName} {employee.lastName}</span></div></td>
                   <td>{employee.department.name}</td>
                   <td>{employee.jobTitle}</td>
                   <td>{employee.branch ?? "-"}</td>

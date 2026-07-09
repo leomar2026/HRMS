@@ -1,10 +1,13 @@
 import { Prisma, Role } from "@prisma/client";
 import { Router } from "express";
 import { z } from "zod";
+import bcrypt from "bcryptjs";
+import crypto from "crypto";
 import { prisma } from "../lib/prisma.js";
 import { requireAuth } from "../middleware/auth.js";
 import { requireRoles } from "../middleware/rbac.js";
 import { audit } from "../utils/audit.js";
+import { env } from "../config/env.js";
 import { csvFile, csvTemplate, numberValue, rowsFromUpload, type UploadRow, xlsxTemplate } from "../utils/uploadParsers.js";
 
 const router = Router();
@@ -133,6 +136,41 @@ function rowToEmployeeData(row: UploadRow, departmentId: string) {
   };
 }
 
+async function availablePortalEmail(employee: { id: string; employeeCode: string; email: string; companyEmail?: string | null }, loginEmail?: string) {
+  const preferred = loginEmail || employee.companyEmail || employee.email || `${employee.employeeCode}@company.local`;
+  const existing = await prisma.user.findUnique({ where: { email: preferred } });
+  if (!existing || existing.employeeId === employee.id) return preferred;
+  return `${employee.employeeCode}@company.local`.toLowerCase();
+}
+
+async function ensureEmployeePortalUser(employee: { id: string; employeeCode: string; email: string; companyEmail?: string | null }, row: UploadRow) {
+  const portalAccess = String(row["Employee Portal Access"] || "YES").trim().toUpperCase();
+  const portalStatus = portalAccess === "NO" || portalAccess === "DISABLED" ? "DISABLED" : "PENDING_FIRST_LOGIN";
+  const role = Role.EMPLOYEE;
+  const email = await availablePortalEmail(employee, row["User Login Email"]);
+  return prisma.user.upsert({
+    where: { employeeId: employee.id },
+    update: {
+      email,
+      role,
+      portalStatus,
+      firstLoginRequired: portalStatus === "PENDING_FIRST_LOGIN",
+      passwordResetRequired: false,
+      forcePasswordChange: portalStatus === "PENDING_FIRST_LOGIN"
+    },
+    create: {
+      email,
+      employeeId: employee.id,
+      role,
+      portalStatus,
+      passwordHash: await bcrypt.hash(crypto.randomUUID(), env.BCRYPT_ROUNDS),
+      firstLoginRequired: portalStatus === "PENDING_FIRST_LOGIN",
+      passwordResetRequired: false,
+      forcePasswordChange: portalStatus === "PENDING_FIRST_LOGIN"
+    }
+  });
+}
+
 router.use(requireAuth);
 
 router.get("/template.csv", requireRoles(...importRoles), (_req, res) => {
@@ -204,10 +242,12 @@ router.post("/", requireRoles(...importRoles), async (req, res, next) => {
       const existing = validation.byCode.get(row["Employee Code"]);
       if (existing && body.mode === "CREATE_AND_UPDATE") {
         const updated = await prisma.employee.update({ where: { id: existing.id }, data });
+        await ensureEmployeePortalUser(updated, row);
         updatedCount += 1;
         await audit(req, "EMPLOYEE_IMPORT_UPDATE", "Employee", updated.id, { batchNumber: batch.batchNumber }, existing, updated);
       } else if (!existing) {
         const created = await prisma.employee.create({ data });
+        await ensureEmployeePortalUser(created, row);
         createdCount += 1;
         await audit(req, "EMPLOYEE_IMPORT_CREATE", "Employee", created.id, { batchNumber: batch.batchNumber }, undefined, created);
       }

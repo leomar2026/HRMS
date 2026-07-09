@@ -1,4 +1,4 @@
-import { HrLeaveDecisionForm } from "@/components/HrLeaveActions";
+import { AdminLeaveEditForm, HrLeaveDecisionForm } from "@/components/HrLeaveActions";
 import { apiFetch } from "@/lib/api";
 
 type Leave = {
@@ -26,7 +26,7 @@ export default async function LeavePage() {
       </div>
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Employee</th><th>Type</th><th>Start</th><th>End</th><th>Days</th><th>Status</th><th>Comments</th><th>HR Actions</th></tr></thead>
+          <thead><tr><th>Employee</th><th>Type</th><th>Start</th><th>End</th><th>Days</th><th>Status</th><th>Comments</th><th>Admin Edit</th><th>HR Actions</th></tr></thead>
           <tbody>
             {leaves.map((leave) => (
               <tr key={leave.id}>
@@ -37,6 +37,7 @@ export default async function LeavePage() {
                 <td>{leave.days}</td>
                 <td><span className={leave.status === "PENDING" ? "status warn" : "status"}>{leave.workflowStage ?? leave.status}</span></td>
                 <td>{leave.comments ?? "-"}</td>
+                <td><AdminLeaveEditForm leave={leave} /></td>
                 <td>{leave.workflowStage === "PENDING_HR_MANAGER_APPROVAL" ? <HrLeaveDecisionForm leaveId={leave.id} /> : "-"}</td>
               </tr>
             ))}

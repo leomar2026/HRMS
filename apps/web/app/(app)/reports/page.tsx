@@ -1,50 +1,183 @@
 import { apiFetch } from "@/lib/api";
 
-type Catalog = { category: string; reports: string[] };
+type CatalogReport = { id: string; title: string; description: string; sensitive?: boolean };
+type Catalog = { category: string; reports: CatalogReport[] };
 type Dashboard = {
   totalEmployees: number;
   activeEmployees: number;
-  pendingLeaves: number;
-  pendingPayroll: number;
+  employeesOnLeaveToday: number;
+  pendingApprovals: number;
   expiringIqama: number;
   expiringPassport: number;
-  expiringContracts: number;
-  monthlyPayrollCost: string | number;
-  gosiEstimatedContribution: string | number;
+  pendingPayroll: number;
+  pendingExitClearance: number;
+  failedEmailNotifications: number;
+  failedErpPostings: number;
+};
+type ReportPayload = {
+  report: { id: string; title: string; category: string; description: string };
+  company: { name: string; logoDataUrl?: string; logoVersion?: number };
+  generatedAt: string;
+  generatedBy: string;
+  filters: Record<string, string>;
+  columns: Array<{ key: string; label: string; sensitive?: boolean }>;
+  rows: Array<Record<string, string | number>>;
+  summary: Record<string, string | number>;
+  pagination: { page: number; pageSize: number; total: number; totalPages: number };
 };
 
-export default async function ReportsPage() {
-  const [catalog, dashboard] = await Promise.all([
+function firstValue(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value ?? "";
+}
+
+function buildQuery(params: Record<string, string>, overrides: Record<string, string> = {}) {
+  const query = new URLSearchParams();
+  Object.entries({ ...params, ...overrides }).forEach(([key, value]) => {
+    if (value) query.set(key, value);
+  });
+  return query.toString();
+}
+
+export default async function ReportsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const rawParams = await searchParams;
+  const reportId = firstValue(rawParams.report) || "employee-master";
+  const params = {
+    report: reportId,
+    search: firstValue(rawParams.search),
+    dateFrom: firstValue(rawParams.dateFrom),
+    dateTo: firstValue(rawParams.dateTo),
+    branch: firstValue(rawParams.branch),
+    department: firstValue(rawParams.department),
+    location: firstValue(rawParams.location),
+    employee: firstValue(rawParams.employee),
+    status: firstValue(rawParams.status),
+    sortBy: firstValue(rawParams.sortBy),
+    sortDir: firstValue(rawParams.sortDir),
+    page: firstValue(rawParams.page),
+    pageSize: firstValue(rawParams.pageSize) || "25"
+  };
+  const apiQuery = buildQuery(params, { report: "" });
+
+  const [catalog, dashboard, payload] = await Promise.all([
     apiFetch<Catalog[]>("/reports/catalog"),
-    apiFetch<Dashboard>("/reports/dashboard")
+    apiFetch<Dashboard>("/reports/dashboard"),
+    apiFetch<ReportPayload>(`/reports/${reportId}${apiQuery ? `?${apiQuery}` : ""}`)
   ]);
+
+  const exportQuery = apiQuery ? `?${apiQuery}` : "";
+  const quickLinks = ["employee-master", "leave-balance", "payroll-register", "attendance-daily", "employee-document-expiry", "pending-approvals", "audit-log"];
 
   return (
     <>
       <div className="page-head">
         <div>
-          <h1 className="page-title">Reporting Center</h1>
-          <p className="muted">Centralized HR, leave, attendance, payroll, government, and audit reports.</p>
+          <h1 className="page-title">Reports</h1>
+          <p className="muted">{payload.company.name} reports, exports, and print previews.</p>
         </div>
         <div className="actions">
-          <a className="button secondary" href="/api/backend/reports/audit-trail.csv">Export Audit CSV</a>
+          <a className="button secondary" href={`/api/backend/reports/${reportId}/print${exportQuery}`} target="_blank">Print Preview</a>
+          <a className="button secondary" href={`/api/backend/reports/${reportId}/export.pdf${exportQuery}`}>PDF</a>
+          <a className="button secondary" href={`/api/backend/reports/${reportId}/export.xlsx${exportQuery}`}>Excel</a>
+          <a className="button secondary" href={`/api/backend/reports/${reportId}/export.csv${exportQuery}`}>CSV</a>
         </div>
       </div>
-      <section className="grid cols-4">
+
+      <section className="grid cols-5">
         <div className="panel"><span className="muted">Total employees</span><div className="metric">{dashboard.totalEmployees}</div></div>
         <div className="panel"><span className="muted">Active</span><div className="metric">{dashboard.activeEmployees}</div></div>
-        <div className="panel"><span className="muted">Expiring Iqama</span><div className="metric">{dashboard.expiringIqama}</div></div>
-        <div className="panel"><span className="muted">Payroll cost</span><div className="metric">{dashboard.monthlyPayrollCost}</div></div>
+        <div className="panel"><span className="muted">On leave today</span><div className="metric">{dashboard.employeesOnLeaveToday}</div></div>
+        <div className="panel"><span className="muted">Pending approvals</span><div className="metric">{dashboard.pendingApprovals}</div></div>
+        <div className="panel"><span className="muted">Pending payroll</span><div className="metric">{dashboard.pendingPayroll}</div></div>
       </section>
-      <div style={{ height: 16 }} />
-      <section className="grid cols-3">
-        {catalog.map((group) => (
-          <article className="panel" key={group.category}>
-            <h2>{group.category}</h2>
-            {group.reports.map((report) => <p className="muted" key={report}>{report}</p>)}
-          </article>
-        ))}
+
+      <div style={{ height: 12 }} />
+
+      <section className="panel compact-panel">
+        <div className="toolbar-row">
+          <div>
+            <h2>{payload.report.title}</h2>
+            <p className="muted">Generated by {payload.generatedBy} on {new Date(payload.generatedAt).toLocaleString()}</p>
+          </div>
+          <div className="actions">
+            {quickLinks.map((id) => {
+              const report = catalog.flatMap((group) => group.reports).find((item) => item.id === id);
+              return report ? <a key={id} className={`button ${id === reportId ? "" : "secondary"}`} href={`/reports?report=${id}`}>{report.title.replace(" Report", "")}</a> : null;
+            })}
+          </div>
+        </div>
+
+        <form className="report-filter-grid" action="/reports">
+          <input type="hidden" name="report" value={reportId} />
+          <input name="search" defaultValue={params.search} placeholder="Search..." />
+          <input name="employee" defaultValue={params.employee} placeholder="Employee ID / name" />
+          <input name="department" defaultValue={params.department} placeholder="Department" />
+          <input name="branch" defaultValue={params.branch} placeholder="Branch" />
+          <input name="location" defaultValue={params.location} placeholder="Location" />
+          <input name="status" defaultValue={params.status} placeholder="Status" />
+          <input name="dateFrom" defaultValue={params.dateFrom} type="date" />
+          <input name="dateTo" defaultValue={params.dateTo} type="date" />
+          <select name="pageSize" defaultValue={params.pageSize}>
+            <option value="10">10 rows</option>
+            <option value="25">25 rows</option>
+            <option value="50">50 rows</option>
+            <option value="100">100 rows</option>
+          </select>
+          <button className="button" type="submit">Apply</button>
+          <a className="button secondary" href={`/reports?report=${reportId}`}>Refresh</a>
+        </form>
       </section>
+
+      <div className="report-layout single">
+        <section className="panel report-table-panel">
+          <div className="toolbar-row">
+            <div>
+              <strong>Total records: {payload.pagination.total}</strong>
+              <p className="muted">Page {payload.pagination.page} of {payload.pagination.totalPages}</p>
+            </div>
+            <div className="actions">
+              {Object.entries(payload.summary).map(([key, value]) => <span className="status-chip" key={key}>{key}: {String(value)}</span>)}
+            </div>
+          </div>
+          <div className="table-wrap">
+            <table className="data-table compact-table">
+              <thead>
+                <tr>
+                  <th><input type="checkbox" aria-label="Select all rows" /></th>
+                  {payload.columns.map((column) => {
+                    const nextDir = params.sortBy === column.key && params.sortDir !== "desc" ? "desc" : "asc";
+                    return (
+                      <th key={column.key}>
+                        <a href={`/reports?${buildQuery(params, { sortBy: column.key, sortDir: nextDir, page: "1" })}`}>
+                          {column.label} {params.sortBy === column.key ? (params.sortDir === "desc" ? "↓" : "↑") : "↕"}
+                        </a>
+                      </th>
+                    );
+                  })}
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {payload.rows.length ? payload.rows.map((row, index) => (
+                  <tr key={index}>
+                    <td><input type="checkbox" aria-label={`Select row ${index + 1}`} /></td>
+                    {payload.columns.map((column) => <td key={column.key}>{String(row[column.key] ?? "")}</td>)}
+                    <td><a className="button secondary small" href={`/api/backend/reports/${reportId}/print${exportQuery}`} target="_blank">Print</a></td>
+                  </tr>
+                )) : (
+                  <tr><td colSpan={payload.columns.length + 2}>No records found.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          <div className="pagination-row">
+            <span>Rows per page: {payload.pagination.pageSize}</span>
+            <div className="actions">
+              <a className="button secondary" aria-disabled={payload.pagination.page <= 1} href={`/reports?${buildQuery(params, { page: String(Math.max(payload.pagination.page - 1, 1)) })}`}>Previous</a>
+              <a className="button secondary" aria-disabled={payload.pagination.page >= payload.pagination.totalPages} href={`/reports?${buildQuery(params, { page: String(Math.min(payload.pagination.page + 1, payload.pagination.totalPages)) })}`}>Next</a>
+            </div>
+          </div>
+        </section>
+      </div>
     </>
   );
 }

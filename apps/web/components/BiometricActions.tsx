@@ -153,6 +153,7 @@ export function DeviceActionButtons({ deviceId }: { deviceId: string }) {
 
 export function BiometricImportForm({ devices }: { devices: Device[] }) {
   const [message, setMessage] = useState("");
+  const [fileName, setFileName] = useState("");
   async function submit(formData: FormData) {
     setMessage("Importing...");
     try {
@@ -169,7 +170,10 @@ export function BiometricImportForm({ devices }: { devices: Device[] }) {
   return (
     <form action={submit} className="bulk-bar">
       <select name="deviceId" required>{devices.map((device) => <option key={device.id} value={device.id}>{device.deviceName}</option>)}</select>
-      <input name="file" type="file" accept=".csv" required />
+      <div className="upload-browse-row compact">
+        <input name="file" type="file" accept=".csv" required onChange={(event) => setFileName(event.target.files?.[0]?.name ?? "")} />
+        <span className="muted">{fileName || "Browse CSV file"}</span>
+      </div>
       <button className="button" type="submit"><Upload size={16} /> Import CSV</button>
       {message ? <span className={message.includes("Unable") || message.includes("Select") ? "status danger" : "status"}>{message}</span> : null}
     </form>

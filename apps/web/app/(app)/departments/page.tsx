@@ -1,5 +1,6 @@
 import { apiFetch } from "@/lib/api";
 import { TableToolbar } from "@/components/DataTableControls";
+import { DepartmentEditForm, DepartmentForm } from "@/components/AdminForms";
 
 type Department = {
   id: string;
@@ -24,15 +25,24 @@ export default async function DepartmentsPage() {
         ]}
         searchPlaceholder="Search departments..."
       />
-      <section className="grid cols-3">
-        {departments.map((department) => (
-          <article className="panel" key={department.id}>
-            <span className="status">{department.code}</span>
-            <h2>{department.name}</h2>
-            <p className="muted">{department._count.employees} employees</p>
-          </article>
-        ))}
-      </section>
+      <DepartmentForm />
+      <div style={{ height: 16 }} />
+      <div className="table-wrap">
+        <table>
+          <thead><tr><th><input aria-label="Select all departments" type="checkbox" /></th><th className="freeze-col">Code</th><th>Name</th><th>Employees</th><th>Actions</th></tr></thead>
+          <tbody>
+            {departments.map((department) => (
+              <tr key={department.id}>
+                <td><input aria-label={`Select ${department.code}`} type="checkbox" /></td>
+                <td className="freeze-col">{department.code}</td>
+                <td>{department.name}</td>
+                <td>{department._count.employees}</td>
+                <td><DepartmentEditForm department={department} /></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </>
   );
 }

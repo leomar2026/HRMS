@@ -2,15 +2,20 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bell, ClipboardCheck, FileClock, LayoutDashboard, LogOut, ReceiptText, Umbrella } from "lucide-react";
+import { Banknote, Bell, BriefcaseBusiness, ClipboardCheck, FileClock, LayoutDashboard, LogOut, Plane, ReceiptText, Umbrella, UserMinus, UserRound } from "lucide-react";
 
 const links = [
   { href: "/employee/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/employee/profile", label: "My Profile", icon: UserRound },
   { href: "/employee/payslips", label: "My Payslips", icon: ReceiptText },
-  { href: "/employee/leaves", label: "Apply Leave", icon: FileClock },
-  { href: "/employee/leaves", label: "My Leave Requests", icon: FileClock },
+  { href: "/employee/leaves", label: "Leave Requests", icon: FileClock },
   { href: "/employee/vacation-balance", label: "Vacation Balance", icon: Umbrella },
-  { href: "/employee/approval-history", label: "Approval Timeline", icon: ClipboardCheck },
+  { href: "/employee/loans", label: "Loans / Salary Advances", icon: Banknote },
+  { href: "/employee/business-trips", label: "Business Trips", icon: BriefcaseBusiness },
+  { href: "/employee/ticket-requests", label: "Ticket Requests", icon: Plane },
+  { href: "/employee/petty-cash", label: "Petty Cash Requests", icon: Banknote },
+  { href: "/employee/resignation", label: "Resignation Status", icon: UserMinus },
+  { href: "/employee/approval-history", label: "My Approval History", icon: ClipboardCheck },
   { href: "/employee/notifications", label: "Notifications", icon: Bell }
 ];
 

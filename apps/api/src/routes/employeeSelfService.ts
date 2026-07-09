@@ -27,7 +27,29 @@ const leaveRequestSchema = z.object({
   contactNumber: z.string().max(40).optional(),
   leaveAddress: z.string().max(300).optional(),
   emergencyContact: z.string().max(80).optional(),
-  attachmentName: z.string().max(180).optional()
+  attachmentName: z.string().max(180).optional(),
+  destinationCountry: z.string().max(80).optional(),
+  destinationCity: z.string().max(80).optional(),
+  mobileWhileOnLeave: z.string().max(40).optional(),
+  personalEmailWhileOnLeave: z.string().email().optional().or(z.literal("")),
+  emergencyContactName: z.string().max(120).optional(),
+  emergencyContactNumber: z.string().max(40).optional(),
+  emergencyContactRelationship: z.string().max(80).optional(),
+  lastWorkingDay: z.coerce.date().optional(),
+  returnToWorkDate: z.coerce.date().optional(),
+  relieverId: z.string().optional(),
+  handoverRequired: z.coerce.boolean().default(false),
+  handoverDetails: z.string().max(1000).optional(),
+  handoverAttachment: z.string().max(180).optional(),
+  annualVacationRemarks: z.string().max(1000).optional(),
+  attachments: z.array(z.object({ type: z.string(), name: z.string(), reference: z.string().optional() })).optional()
+});
+
+const profilePhotoSchema = z.object({
+  fileName: z.string().min(2),
+  mimeType: z.enum(["image/jpeg", "image/jpg", "image/png", "image/webp"]),
+  size: z.coerce.number().int().positive().max(2 * 1024 * 1024, "Profile picture must be 2 MB or less"),
+  dataUrl: z.string().startsWith("data:image/")
 });
 
 function daysBetween(start: Date, end: Date) {
@@ -37,6 +59,12 @@ function daysBetween(start: Date, end: Date) {
 function requireEmployeeId(employeeId?: string | null) {
   if (!employeeId) throw new AppError(403, "Employee profile is not linked to this user");
   return employeeId;
+}
+
+function payrollValuesWithoutGosi<T extends { gosiDeduction: unknown; netSalary: unknown }>(item: T) {
+  const previousGosi = Number(item.gosiDeduction ?? 0);
+  const adjustedNet = Number(item.netSalary ?? 0) + previousGosi;
+  return { gosiDeduction: "0.00", netSalary: adjustedNet.toFixed(2) };
 }
 
 router.use(requireAuth, requireRoles(Role.EMPLOYEE));
@@ -50,17 +78,35 @@ router.get("/me/dashboard", async (req, res, next) => {
     });
     if (!employee) throw new AppError(404, "Employee profile not found");
 
-    const [pendingLeaves, latestPayslip, notifications] = await Promise.all([
+    const [pendingLeaves, latestPayslip, notifications, recentPayslips, pendingLoans, pendingBusinessTrips, pendingPettyCash, pendingResignation, attendanceSummary] = await Promise.all([
       prisma.leaveRequest.count({ where: { employeeId, status: ApprovalStatus.PENDING } }),
       prisma.payrollUploadItem.findFirst({
         where: { employeeId, batch: { status: "PUBLISHED" } },
         include: { batch: true },
         orderBy: [{ batch: { year: "desc" } }, { batch: { month: "desc" } }]
       }),
-      prisma.notification.findMany({ where: { OR: [{ employeeId }, { userId: req.user?.id }] }, orderBy: { createdAt: "desc" }, take: 5 })
+      prisma.notification.findMany({ where: { OR: [{ employeeId }, { userId: req.user?.id }] }, orderBy: { createdAt: "desc" }, take: 5 }),
+      prisma.payrollUploadItem.findMany({ where: { employeeId, batch: { status: "PUBLISHED" } }, include: { batch: true }, orderBy: [{ batch: { year: "desc" } }, { batch: { month: "desc" } }], take: 3 }),
+      prisma.employeeLoanRequest.count({ where: { employeeId, status: { in: ["PENDING_MANAGER", "PENDING_HR_MANAGER", "PENDING_FINANCE", "PENDING_ADMIN"] as never[] } } }),
+      prisma.businessTripRequest.count({ where: { employeeId, status: { in: ["PENDING_MANAGER", "PENDING_HR_MANAGER", "PENDING_FINANCE", "PENDING_ADMIN"] as never[] } } }),
+      prisma.pettyCashRequest.count({ where: { employeeId, status: { in: ["PENDING_MANAGER", "PENDING_HR_MANAGER", "PENDING_FINANCE", "PENDING_ADMIN"] as never[] } } }),
+      prisma.resignationRequest.findFirst({ where: { employeeId }, orderBy: { createdAt: "desc" } }),
+      prisma.attendance.groupBy({ by: ["status"], where: { employeeId }, _count: { status: true } })
     ]);
 
-    res.json({ employee, pendingLeaves, latestPayslip, notifications });
+    res.json({
+      employee,
+      pendingLeaves,
+      latestPayslip,
+      recentPayslips,
+      notifications,
+      pendingLoans,
+      pendingBusinessTrips,
+      pendingPettyCash,
+      pendingResignation,
+      attendanceSummary,
+      documentExpiryAlerts: employee.documents ?? []
+    });
   } catch (error) {
     next(error);
   }
@@ -117,6 +163,59 @@ router.patch("/me/contact", async (req, res, next) => {
   }
 });
 
+router.put("/me/profile-photo", async (req, res, next) => {
+  try {
+    const employeeId = requireEmployeeId(req.user?.employeeId);
+    const body = profilePhotoSchema.parse(req.body);
+    const previous = await prisma.employee.findUnique({ where: { id: employeeId } });
+    if (!previous) throw new AppError(404, "Employee profile not found");
+    const employee = await prisma.employee.update({
+      where: { id: employeeId },
+      data: {
+        photoUrl: body.dataUrl,
+        profilePhotoPath: body.dataUrl,
+        profilePhotoFileName: body.fileName,
+        profilePhotoMimeType: body.mimeType,
+        profilePhotoSize: body.size,
+        profilePhotoUploadedBy: req.user?.id,
+        profilePhotoUploadedAt: new Date(),
+        profilePhotoStatus: "ACTIVE"
+      },
+      include: { department: true, manager: true }
+    });
+    await audit(req, previous.profilePhotoPath ? "PROFILE_PHOTO_REPLACED" : "PROFILE_PHOTO_UPLOADED", "Employee", employeeId, { fileName: body.fileName, source: "EMPLOYEE_SELF_SERVICE" }, previous, employee);
+    res.json(employee);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.delete("/me/profile-photo", async (req, res, next) => {
+  try {
+    const employeeId = requireEmployeeId(req.user?.employeeId);
+    const previous = await prisma.employee.findUnique({ where: { id: employeeId } });
+    if (!previous) throw new AppError(404, "Employee profile not found");
+    const employee = await prisma.employee.update({
+      where: { id: employeeId },
+      data: {
+        photoUrl: null,
+        profilePhotoPath: null,
+        profilePhotoFileName: null,
+        profilePhotoMimeType: null,
+        profilePhotoSize: null,
+        profilePhotoUploadedBy: null,
+        profilePhotoUploadedAt: null,
+        profilePhotoStatus: "ACTIVE"
+      },
+      include: { department: true, manager: true }
+    });
+    await audit(req, "PROFILE_PHOTO_DELETED", "Employee", employeeId, undefined, previous, employee);
+    res.json(employee);
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.get("/me/attendance", async (req, res, next) => {
   try {
     const employeeId = requireEmployeeId(req.user?.employeeId);
@@ -145,6 +244,20 @@ router.get("/me/leaves", async (req, res, next) => {
   }
 });
 
+router.get("/me/relievers", async (req, res, next) => {
+  try {
+    const employeeId = requireEmployeeId(req.user?.employeeId);
+    const employees = await prisma.employee.findMany({
+      where: { id: { not: employeeId }, status: "ACTIVE" },
+      select: { id: true, employeeCode: true, firstName: true, lastName: true, jobTitle: true, branch: true, location: true, department: { select: { name: true } }, manager: { select: { firstName: true, lastName: true } } },
+      orderBy: [{ firstName: "asc" }, { lastName: "asc" }]
+    });
+    res.json(employees);
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.post("/me/leaves", async (req, res, next) => {
   try {
     const employeeId = requireEmployeeId(req.user?.employeeId);
@@ -155,6 +268,24 @@ router.post("/me/leaves", async (req, res, next) => {
     const employee = await prisma.employee.findUnique({ where: { id: employeeId }, include: { manager: true, department: true } });
     if (!employee) throw new AppError(404, "Employee profile not found");
     if (body.type !== LeaveType.UNPAID && employee.leaveBalance < days) throw new AppError(400, "Insufficient leave balance");
+    let reliever: Prisma.EmployeeGetPayload<{ include: { department: true; manager: true } }> | null = null;
+    if (body.type === LeaveType.ANNUAL) {
+      const attachments = [body.attachmentName, body.handoverAttachment, ...(body.attachments ?? []).map((attachment) => attachment.name)].filter(Boolean);
+      if (attachments.length === 0) throw new AppError(400, "Annual Vacation Leave requires at least one attachment.");
+      if (!body.relieverId) throw new AppError(400, "Reliever is required for Annual Vacation Leave.");
+      if (body.relieverId === employeeId) throw new AppError(400, "Reliever cannot be the same employee applying for leave.");
+      reliever = await prisma.employee.findUnique({ where: { id: body.relieverId }, include: { department: true, manager: true } });
+      if (!reliever || reliever.status !== "ACTIVE") throw new AppError(400, "Reliever must be an active employee.");
+      const relieverOverlap = await prisma.leaveRequest.findFirst({
+        where: {
+          employeeId: body.relieverId,
+          status: ApprovalStatus.APPROVED,
+          startDate: { lte: body.endDate },
+          endDate: { gte: body.startDate }
+        }
+      });
+      if (relieverOverlap) throw new AppError(409, "Selected reliever has approved leave overlapping the requested dates.");
+    }
 
     const overlapping = await prisma.leaveRequest.findFirst({
       where: {
@@ -183,6 +314,26 @@ router.post("/me/leaves", async (req, res, next) => {
           leaveAddress: body.leaveAddress,
           emergencyContact: body.emergencyContact,
           attachmentName: body.attachmentName,
+          destinationCountry: body.destinationCountry,
+          destinationCity: body.destinationCity,
+          mobileWhileOnLeave: body.mobileWhileOnLeave,
+          personalEmailWhileOnLeave: body.personalEmailWhileOnLeave || undefined,
+          emergencyContactName: body.emergencyContactName,
+          emergencyContactNumber: body.emergencyContactNumber,
+          emergencyContactRelationship: body.emergencyContactRelationship,
+          lastWorkingDay: body.lastWorkingDay,
+          returnToWorkDate: body.returnToWorkDate,
+          relieverId: body.relieverId,
+          relieverName: reliever ? `${reliever.firstName} ${reliever.lastName}` : undefined,
+          relieverEmployeeCode: reliever?.employeeCode,
+          relieverDepartment: reliever?.department.name,
+          relieverDesignation: reliever?.jobTitle,
+          relieverManager: reliever?.manager ? `${reliever.manager.firstName} ${reliever.manager.lastName}` : undefined,
+          handoverRequired: body.handoverRequired,
+          handoverDetails: body.handoverDetails,
+          handoverAttachment: body.handoverAttachment,
+          annualVacationRemarks: body.annualVacationRemarks,
+          attachments: body.attachments as Prisma.InputJsonValue | undefined,
           availableBalanceAtRequest: employee.leaveBalance,
           workflowStage: initialStage
         }
@@ -420,14 +571,14 @@ router.get("/me/payslips", async (req, res, next) => {
         basicSalary: item.basicSalary,
         housingAllowance: item.housingAllowance,
         transportAllowance: item.transportAllowance,
-        gosiDeduction: item.gosiDeduction,
-        netSalary: item.netSalary,
+        gosiDeduction: "0.00",
+        netSalary: payrollValuesWithoutGosi(item).netSalary,
         paymentDate: item.paymentDate,
         remarks: item.remarks,
         documentReference: item.documentReference,
         payrollRun: { month: item.batch.month, year: item.batch.year, status: item.batch.status }
       })),
-      ...generatedPayslips.map((item) => ({ ...item, source: "GENERATED" }))
+      ...generatedPayslips.map((item) => ({ ...item, ...payrollValuesWithoutGosi(item), source: "GENERATED" }))
     ]);
     await audit(req, "VIEW_PAYSLIPS", "Employee", employeeId);
   } catch (error) {
@@ -488,14 +639,13 @@ router.get("/me/payslips/:id/download", async (req, res, next) => {
         attendance: { payrollDays: 30, presentDays: 30, absentDays: 0, weeklyOffDays: 0, publicHolidays: 0, normalOvertimeHours: 0, holidayOvertimeHours: 0 },
         earnings,
         deductions: [
-          { name: "GOSI Employee Contribution", value: uploaded.gosiDeduction },
           { name: "Loan Deduction", value: uploaded.loanDeduction },
           { name: "Salary Advance Deduction", value: uploaded.advanceDeduction },
           { name: "Unpaid Leave Deduction", value: uploaded.unpaidLeaveDeduction },
           { name: "Absence / Leave Deduction", value: uploaded.leaveDeduction },
           { name: "Other Deduction", value: uploaded.otherDeduction }
         ].filter((component) => Number(component.value) !== 0),
-        netSalary: uploaded.netSalary,
+        netSalary: payrollValuesWithoutGosi(uploaded).netSalary,
         remarks: uploaded.remarks ?? undefined
       });
       return;
@@ -540,10 +690,9 @@ router.get("/me/payslips/:id/download", async (req, res, next) => {
       ],
       deductions: [
         { name: "Absence Deduction", value: item.absenceDeduction },
-        { name: "Loan Deduction", value: item.loanDeduction },
-        { name: "GOSI Employee Contribution", value: item.gosiDeduction }
+        { name: "Loan Deduction", value: item.loanDeduction }
       ],
-      netSalary: item.netSalary
+      netSalary: payrollValuesWithoutGosi(item).netSalary
     });
   } catch (error) {
     next(error);

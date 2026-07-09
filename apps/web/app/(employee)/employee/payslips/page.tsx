@@ -1,4 +1,3 @@
-import { RowActionMenu } from "@/components/DataTableControls";
 import { apiFetch } from "@/lib/api";
 
 type Payslip = {
@@ -6,7 +5,6 @@ type Payslip = {
   basicSalary: string;
   housingAllowance: string;
   transportAllowance: string;
-  gosiDeduction: string;
   netSalary: string;
   paymentDate?: string;
   remarks?: string;
@@ -39,7 +37,7 @@ export default async function EmployeePayslipsPage({ searchParams }: { searchPar
       </div>
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Period</th><th>Status</th><th>Payment date</th><th>Basic</th><th>Housing</th><th>Transport</th><th>GOSI</th><th>Net salary</th><th>Reference</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Period</th><th>Status</th><th>Payment date</th><th>Basic</th><th>Housing</th><th>Transport</th><th>Net salary</th><th>Reference</th><th>Actions</th></tr></thead>
           <tbody>
             {filtered.map((payslip) => (
               <tr key={payslip.id}>
@@ -49,14 +47,10 @@ export default async function EmployeePayslipsPage({ searchParams }: { searchPar
                 <td>{payslip.basicSalary}</td>
                 <td>{payslip.housingAllowance}</td>
                 <td>{payslip.transportAllowance}</td>
-                <td>{payslip.gosiDeduction}</td>
                 <td>{payslip.netSalary}</td>
                 <td>{payslip.documentReference ?? payslip.source ?? "-"}</td>
                 <td>
-                  <RowActionMenu actions={[
-                    { label: "Download PDF", href: `/api/backend/employee/me/payslips/${payslip.id}/download` },
-                    { label: "Print PDF", href: `/api/backend/employee/me/payslips/${payslip.id}/download` }
-                  ]} />
+                  <a className="button secondary small nowrap" href={`/api/backend/employee/me/payslips/${payslip.id}/download`}>Download PDF</a>
                 </td>
               </tr>
             ))}

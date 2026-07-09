@@ -9,6 +9,7 @@
     "dev": "concurrently \"npm run dev -w apps/api\" \"npm run dev -w apps/web\"",
     "build": "npm run build -w apps/api && npm run build -w apps/web",
     "start": "concurrently \"npm run start -w apps/api\" \"npm run start -w apps/web\"",
+    "audit:functionality": "node scripts/hrms-functionality-audit.mjs",
     "prisma:generate": "npm run prisma:generate -w apps/api",
     "prisma:migrate": "npm run prisma:migrate -w apps/api",
     "db:seed": "npm run db:seed -w apps/api"

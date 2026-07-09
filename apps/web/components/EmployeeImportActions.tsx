@@ -11,14 +11,31 @@ export function EmployeeImportForm() {
   const [message, setMessage] = useState("");
   const [errors, setErrors] = useState<ValidationError[]>([]);
   const [preview, setPreview] = useState<Record<string, string>[]>([]);
+  const [fileName, setFileName] = useState("");
 
   async function submit(formData: FormData) {
-    const payload = {
+    const file = formData.get("file");
+    let payload: { mode: FormDataEntryValue | null; saveDraft: boolean; fileName: string; content?: FormDataEntryValue | null; contentBase64?: string } = {
       mode: formData.get("mode"),
       saveDraft: formData.get("saveDraft") === "on",
       fileName: "employee-import.csv",
       content: formData.get("content")
     };
+    if (file instanceof File && file.size > 0) {
+      payload.fileName = file.name;
+      if (file.name.toLowerCase().endsWith(".csv")) payload.content = await file.text();
+      else {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        let binary = "";
+        for (const byte of bytes) binary += String.fromCharCode(byte);
+        payload.contentBase64 = btoa(binary);
+        payload.content = undefined;
+      }
+    }
+    if (!payload.content && !payload.contentBase64) {
+      setMessage("Please browse and select a CSV/Excel file, or paste CSV content.");
+      return;
+    }
 
     const validation = await fetch("/api/backend/employee-imports/validate", {
       method: "POST",
@@ -56,8 +73,15 @@ export function EmployeeImportForm() {
         <label className="status"><input name="saveDraft" type="checkbox" /> Save as draft</label>
       </div>
       <label className="field">
-        <span>Employee CSV content</span>
-        <textarea name="content" placeholder="Employee Code,Employee Name English,Department,Designation,Joining Date" required />
+        <span>Browse employee CSV/Excel file</span>
+        <div className="upload-browse-row">
+          <input name="file" type="file" accept=".csv,.xlsx,.xls" onChange={(event) => setFileName(event.target.files?.[0]?.name ?? "")} />
+          <span className="muted">{fileName || "No file selected"}</span>
+        </div>
+      </label>
+      <label className="field">
+        <span>Employee CSV content fallback</span>
+        <textarea name="content" placeholder="Employee Code,Employee Name English,Department,Designation,Joining Date" />
       </label>
       <div className="actions">
         <button className="button" type="submit"><Upload size={18} /> Validate and import</button>

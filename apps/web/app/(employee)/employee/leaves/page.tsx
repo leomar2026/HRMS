@@ -1,5 +1,5 @@
 import { LeaveRequestForm } from "@/components/EmployeeActions";
-import { RowActionMenu } from "@/components/DataTableControls";
+import { PrintDocumentActions, RowActionMenu } from "@/components/DataTableControls";
 import { apiFetch } from "@/lib/api";
 
 type Leave = {
@@ -18,11 +18,13 @@ type Leave = {
   approvalHistory?: Array<{ id: string; status: string; comments?: string; createdAt: string }>;
 };
 type Balance = { leaveBalance: number };
+type Reliever = { id: string; employeeCode: string; firstName: string; lastName: string; jobTitle: string; branch?: string; location?: string; department: { name: string }; manager?: { firstName: string; lastName: string } | null };
 
 export default async function EmployeeLeavesPage() {
-  const [leaves, balance] = await Promise.all([
+  const [leaves, balance, relievers] = await Promise.all([
     apiFetch<Leave[]>("/employee/me/leaves"),
-    apiFetch<Balance>("/employee/me/leave-balance")
+    apiFetch<Balance>("/employee/me/leave-balance"),
+    apiFetch<Reliever[]>("/employee/me/relievers")
   ]);
 
   return (
@@ -34,7 +36,7 @@ export default async function EmployeeLeavesPage() {
         </div>
         <div className="panel"><span className="muted">Available leave balance</span><div className="metric">{balance.leaveBalance}</div></div>
       </div>
-      <LeaveRequestForm />
+      <LeaveRequestForm relievers={relievers} />
       <div style={{ height: 16 }} />
       <div className="table-wrap">
         <table>
@@ -51,7 +53,10 @@ export default async function EmployeeLeavesPage() {
                 <td>{leave.manager ? `${leave.manager.firstName} ${leave.manager.lastName}` : "-"}</td>
                 <td><span className={leave.status === "PENDING" ? "status warn" : "status"}>{leave.workflowStage ?? leave.status}</span></td>
                 <td>{leave.comments ?? leave.reason ?? "-"}</td>
-                <td><RowActionMenu actions={[{ label: "View approval history", href: "/employee/approval-history" }]} /></td>
+                <td>
+                  <RowActionMenu actions={[{ label: "View approval history", href: "/employee/approval-history" }]} />
+                  <PrintDocumentActions module="leaves" id={leave.id} />
+                </td>
               </tr>
             ))}
           </tbody>

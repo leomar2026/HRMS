@@ -5,7 +5,7 @@ import { prisma } from "../lib/prisma.js";
 import { requireAuth } from "../middleware/auth.js";
 import { requireRoles } from "../middleware/rbac.js";
 import { audit } from "../utils/audit.js";
-import { csvTemplate, numberValue, rowsFromUpload } from "../utils/uploadParsers.js";
+import { csvFile, csvTemplate, numberValue, rowsFromUpload, xlsxFile, xlsxTemplate } from "../utils/uploadParsers.js";
 
 const router = Router();
 const uploadRoles = [Role.SUPER_ADMIN, Role.ADMIN, Role.HR_MANAGER, Role.HR_OFFICER, Role.HR];
@@ -49,6 +49,10 @@ router.get("/template.csv", (_req, res) => {
   res.header("Content-Type", "text/csv");
   res.attachment("leave-balance-upload-template.csv");
   res.send(csvTemplate(headers));
+});
+
+router.get("/template.xlsx", async (_req, res) => {
+  await xlsxTemplate(res, "leave-balance-upload-template.xlsx", headers, "Leave Balance");
 });
 
 async function validateRows(rows: Awaited<ReturnType<typeof rowsFromUpload>>) {
@@ -199,10 +203,23 @@ router.get("/:id/export.csv", async (req, res, next) => {
   try {
     const batch = await prisma.leaveBalanceUploadBatch.findUnique({ where: { id: String(req.params.id) }, include: { items: true } });
     if (!batch) return res.status(404).json({ message: "Leave balance batch not found" });
-    const rows = batch.items.map((item) => [item.employeeCode, item.employeeName, item.leaveType, item.leaveYear, item.finalAvailableBalance, item.remarks ?? ""].join(","));
-    res.header("Content-Type", "text/csv");
-    res.attachment(`leave-balance-upload-${batch.leaveYear}.csv`);
-    res.send(["Employee ID,Employee Name,Leave Type,Leave Year,Final Available Balance,Remarks", ...rows].join("\n"));
+    const exportHeaders = ["Employee ID", "Employee Name", "Leave Type", "Leave Year", "Final Available Balance", "Remarks"];
+    const rows = batch.items.map((item) => [item.employeeCode, item.employeeName, item.leaveType, item.leaveYear, item.finalAvailableBalance, item.remarks ?? ""]);
+    await audit(req, "EXPORT", "LeaveBalanceUploadBatch", batch.id, { format: "CSV", count: batch.items.length });
+    csvFile(res, `leave-balance-upload-${batch.leaveYear}.csv`, exportHeaders, rows);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get("/:id/export.xlsx", async (req, res, next) => {
+  try {
+    const batch = await prisma.leaveBalanceUploadBatch.findUnique({ where: { id: String(req.params.id) }, include: { items: true } });
+    if (!batch) return res.status(404).json({ message: "Leave balance batch not found" });
+    const exportHeaders = ["Employee ID", "Employee Name", "Leave Type", "Leave Year", "Final Available Balance", "Remarks"];
+    const rows = batch.items.map((item) => [item.employeeCode, item.employeeName, item.leaveType, item.leaveYear, item.finalAvailableBalance, item.remarks ?? ""]);
+    await audit(req, "EXPORT", "LeaveBalanceUploadBatch", batch.id, { format: "XLSX", count: batch.items.length });
+    await xlsxFile(res, `leave-balance-upload-${batch.leaveYear}.xlsx`, exportHeaders, rows, "Leave Balance");
   } catch (error) {
     next(error);
   }

@@ -94,3 +94,16 @@ export function RowActionMenu({ actions }: { actions: Array<{ label: string; hre
     </details>
   );
 }
+
+export function PrintDocumentActions({ module, id }: { module: string; id: string }) {
+  return (
+    <RowActionMenu
+      actions={[
+        { label: "Print Preview", href: `/api/backend/print-documents/${module}/${id}/preview` },
+        { label: "Download PDF", href: `/api/backend/print-documents/${module}/${id}/pdf` },
+        { label: "Email Document", href: `/api/backend/print-documents/${module}/${id}/email` },
+        { label: "Reprint History", href: `/api/backend/print-documents/${module}/${id}/history` }
+      ]}
+    />
+  );
+}

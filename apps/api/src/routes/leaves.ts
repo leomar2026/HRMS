@@ -23,6 +23,25 @@ const decisionSchema = z.object({
   comments: z.string().max(500).optional()
 });
 
+const cancelSchema = z.object({
+  comments: z.string().max(500).optional()
+});
+
+const adminLeaveEditSchema = z.object({
+  type: z.nativeEnum(LeaveType).optional(),
+  startDate: z.coerce.date().optional(),
+  endDate: z.coerce.date().optional(),
+  days: z.coerce.number().int().min(1).optional(),
+  reason: z.string().optional(),
+  workflowStage: z.string().optional(),
+  status: z.enum(["PENDING", "APPROVED", "REJECTED", "RETURNED_FOR_CORRECTION", "CANCELLED"]).optional(),
+  managerId: z.string().optional(),
+  omApproverId: z.string().optional(),
+  hrApproverId: z.string().optional(),
+  comments: z.string().optional(),
+  changeReason: z.string().min(3)
+});
+
 function daysBetween(start: Date, end: Date) {
   return Math.max(1, Math.ceil((end.getTime() - start.getTime()) / 86400000) + 1);
 }
@@ -55,6 +74,74 @@ router.post("/", async (req, res, next) => {
 
     await audit(req, "CREATE", "LeaveRequest", leave.id, { days, type: body.type });
     res.status(201).json(leave);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.patch("/:id/cancel", async (req, res, next) => {
+  try {
+    const id = String(req.params.id);
+    const { comments } = cancelSchema.parse(req.body);
+    const leave = await prisma.leaveRequest.findUnique({ where: { id }, include: { employee: true } });
+    if (!leave) throw new AppError(404, "Leave request not found");
+    const cancelRoles: Role[] = [Role.SUPER_ADMIN, Role.ADMIN, Role.HR, Role.HR_MANAGER, Role.HR_OFFICER];
+    const privileged = cancelRoles.includes(req.user?.role as Role);
+    if (!privileged && leave.employeeId !== req.user?.employeeId) throw new AppError(403, "You can only cancel your own leave request");
+    if (["REJECTED", "CANCELLED"].includes(leave.status)) throw new AppError(400, "Leave request is already closed");
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const result = await tx.leaveRequest.update({
+        where: { id },
+        data: {
+          status: "CANCELLED",
+          workflowStage: "CANCELLED",
+          comments: comments ?? leave.comments,
+          decidedAt: new Date()
+        }
+      });
+      await tx.approvalHistory.create({
+        data: {
+          leaveRequestId: id,
+          module: "Leave",
+          entityId: id,
+          status: "CANCELLED",
+          comments: comments ?? "Leave cancelled",
+          actedBy: req.user?.id
+        }
+      });
+      if (leave.status === "APPROVED" && leave.type === "ANNUAL") {
+        await tx.employee.update({ where: { id: leave.employeeId }, data: { leaveBalance: { increment: leave.days } } });
+      }
+      return result;
+    });
+    await audit(req, "CANCEL", "LeaveRequest", id, { comments }, leave, updated);
+    res.json(updated);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.patch("/:id", requireRoles(Role.SUPER_ADMIN, Role.ADMIN, Role.HR_MANAGER, Role.HR_OFFICER, Role.HR), async (req, res, next) => {
+  try {
+    const id = String(req.params.id);
+    const body = adminLeaveEditSchema.parse(req.body);
+    const { changeReason, ...leaveBody } = body;
+    const previous = await prisma.leaveRequest.findUnique({ where: { id } });
+    if (!previous) throw new AppError(404, "Leave request not found");
+    const updated = await prisma.leaveRequest.update({ where: { id }, data: leaveBody });
+    await prisma.approvalHistory.create({
+      data: {
+        leaveRequestId: id,
+        module: "Leave",
+        entityId: id,
+        status: updated.status,
+        comments: `Admin edit: ${changeReason}`,
+        actedBy: req.user?.id
+      }
+    });
+    await audit(req, "ADMIN_EDIT", "LeaveRequest", id, { fields: Object.keys(leaveBody), reason: changeReason }, previous, updated);
+    res.json(updated);
   } catch (error) {
     next(error);
   }

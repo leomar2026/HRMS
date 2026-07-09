@@ -1,5 +1,5 @@
 import { ArchiveGroupButton, GroupForm } from "@/components/GroupActions";
-import { BulkActionBar, RowActionMenu, TableToolbar } from "@/components/DataTableControls";
+import { RowActionMenu, TableToolbar } from "@/components/DataTableControls";
 import { apiFetch } from "@/lib/api";
 
 type Group = {
@@ -34,16 +34,15 @@ export default async function GroupManagementPage({ searchParams }: { searchPara
           { label: "All Groups", href: "/group-management", icon: "refresh" },
           { label: "Employee", href: "/group-management?type=EMPLOYEE", icon: "filter" },
           { label: "Leave", href: "/group-management?type=LEAVE", icon: "filter" },
-          { label: "Payroll", href: "/group-management?type=PAYROLL", icon: "filter" }
+          { label: "Payroll", href: "/group-management?type=PAYROLL", icon: "filter" },
+          { label: "CSV Template", href: "/api/backend/groups/template.csv", icon: "template" },
+          { label: "Excel Template", href: "/api/backend/groups/template.xlsx", icon: "template" },
+          { label: "Export CSV", href: "/api/backend/groups/export.csv", icon: "export" },
+          { label: "Export Excel", href: "/api/backend/groups/export.xlsx", icon: "export" }
         ]}
       />
       <GroupForm defaultType={params.type ?? "EMPLOYEE"} />
       <div style={{ height: 16 }} />
-      <BulkActionBar
-        actions={[
-          { label: "Export all members", href: "/api/backend/groups/export-members.csv" }
-        ]}
-      />
       <div className="table-wrap">
         <table>
           <thead>

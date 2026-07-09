@@ -7,6 +7,7 @@ import { useState } from "react";
 export function AttendanceImport() {
   const router = useRouter();
   const [message, setMessage] = useState("");
+  const [fileName, setFileName] = useState("");
 
   async function submit(formData: FormData) {
     const file = formData.get("file");
@@ -39,11 +40,14 @@ export function AttendanceImport() {
   return (
     <form action={submit} className="form-panel grid">
       <label className="field">
-        <span>Biometric CSV or Excel file</span>
-        <input name="file" type="file" accept=".csv,.xlsx" />
+        <span>Browse biometric CSV/Excel file</span>
+        <div className="upload-browse-row">
+          <input name="file" type="file" accept=".csv,.xlsx,.xls" onChange={(event) => setFileName(event.target.files?.[0]?.name ?? "")} />
+          <span className="muted">{fileName || "No file selected"}</span>
+        </div>
       </label>
       <label className="field">
-        <span>CSV content</span>
+        <span>CSV content fallback</span>
         <textarea name="content" placeholder="employeeCode,checkIn,checkOut" />
       </label>
       <div className="actions">

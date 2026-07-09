@@ -18,8 +18,8 @@ export function calculateNetSalary(input: {
   const overtime = decimal(input.overtime ?? 0);
   const absence = decimal(input.absenceDeduction ?? 0);
   const loan = decimal(input.loanDeduction ?? 0);
-  const gosiDeduction = basic.plus(housing).mul(0.0975).toDecimalPlaces(2);
-  const netSalary = basic.plus(housing).plus(transport).plus(other).plus(overtime).minus(absence).minus(loan).minus(gosiDeduction).toDecimalPlaces(2);
+  const gosiDeduction = decimal(0).toDecimalPlaces(2);
+  const netSalary = basic.plus(housing).plus(transport).plus(other).plus(overtime).minus(absence).minus(loan).toDecimalPlaces(2);
 
   return {
     gosiDeduction,

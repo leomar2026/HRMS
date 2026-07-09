@@ -9,6 +9,7 @@ import { requireRoles } from "../middleware/rbac.js";
 import { audit } from "../utils/audit.js";
 import { env } from "../config/env.js";
 import { companyPrintHeader, getCurrentCompanyProfile } from "../utils/companyProfile.js";
+import { csvFile, xlsxFile } from "../utils/uploadParsers.js";
 
 const router = Router();
 
@@ -68,13 +69,37 @@ const employeeSchema = z.object({
   password: z.string().min(8).optional()
 });
 
-const updateEmployeeSchema = employeeSchema.partial().omit({ password: true, role: true });
+const updateEmployeeSchema = employeeSchema.partial().omit({ password: true, role: true }).extend({
+  changeReason: z.string().min(3).optional()
+});
 
 const userRoleSchema = z.object({
   role: z.nativeEnum(Role),
   email: z.string().email().optional(),
   password: z.string().min(8).optional(),
   portalStatus: z.enum(["ACTIVE", "PENDING_FIRST_LOGIN", "PASSWORD_RESET_REQUIRED", "DISABLED"]).optional()
+});
+
+const provisionPortalUsersSchema = z.object({
+  role: z.nativeEnum(Role).default(Role.EMPLOYEE),
+  portalStatus: z.enum(["ACTIVE", "PENDING_FIRST_LOGIN", "PASSWORD_RESET_REQUIRED", "DISABLED"]).default("PENDING_FIRST_LOGIN")
+});
+
+const documentSchema = z.object({
+  documentType: z.string().min(2),
+  fileName: z.string().min(2),
+  fileDataUrl: z.string().min(10).optional(),
+  fileUrl: z.string().min(2).optional(),
+  expiryDate: z.coerce.date().optional(),
+  notes: z.string().optional()
+}).refine((value) => value.fileDataUrl || value.fileUrl, { message: "Document file content or URL is required" });
+
+const profilePhotoSchema = z.object({
+  fileName: z.string().min(2),
+  mimeType: z.enum(["image/jpeg", "image/jpg", "image/png", "image/webp"]),
+  size: z.coerce.number().int().positive().max(2 * 1024 * 1024, "Profile picture must be 2 MB or less"),
+  dataUrl: z.string().startsWith("data:image/"),
+  status: z.enum(["PENDING", "APPROVED", "REJECTED", "ACTIVE"]).default("ACTIVE")
 });
 
 const querySchema = z.object({
@@ -120,6 +145,13 @@ function employeeWhere(query: z.infer<typeof querySchema>) {
   };
 }
 
+async function availablePortalEmail(employee: { id: string; employeeCode: string; email: string; companyEmail?: string | null }) {
+  const preferred = employee.companyEmail || employee.email || `${employee.employeeCode}@company.local`;
+  const existing = await prisma.user.findUnique({ where: { email: preferred } });
+  if (!existing || existing.employeeId === employee.id) return preferred;
+  return `${employee.employeeCode}@company.local`.toLowerCase();
+}
+
 router.get("/", requireRoles(...privilegedRoles), async (req, res) => {
   const query = querySchema.parse(req.query);
   const where = employeeWhere(query);
@@ -150,22 +182,80 @@ router.get("/export.csv", requireRoles(...privilegedRoles), async (req, res) => 
     include: { department: true },
     orderBy: { employeeCode: "asc" }
   });
-  const header = "employeeCode,fullName,email,nationalId,department,jobTitle,status,joiningDate";
-  const rows = employees.map((employee) =>
-    [
-      employee.employeeCode,
-      `${employee.firstName} ${employee.lastName}`,
-      employee.email,
-      employee.nationalId,
-      employee.department.name,
-      employee.jobTitle,
-      employee.status,
-      employee.joiningDate.toISOString().slice(0, 10)
-    ].join(",")
-  );
-  res.header("Content-Type", "text/csv");
-  res.attachment("employee-master.csv");
-  res.send([header, ...rows].join("\n"));
+  const headers = ["employeeCode", "fullName", "email", "nationalId", "department", "jobTitle", "status", "joiningDate"];
+  const rows = employees.map((employee) => [
+    employee.employeeCode,
+    `${employee.firstName} ${employee.lastName}`,
+    employee.email,
+    employee.nationalId,
+    employee.department.name,
+    employee.jobTitle,
+    employee.status,
+    employee.joiningDate.toISOString().slice(0, 10)
+  ]);
+  await audit(req, "EXPORT", "Employee", undefined, { format: "CSV", count: employees.length, filters: query });
+  csvFile(res, "employee-master.csv", headers, rows);
+});
+
+router.get("/export.xlsx", requireRoles(...privilegedRoles), async (req, res) => {
+  const query = querySchema.parse(req.query);
+  const employees = await prisma.employee.findMany({
+    where: employeeWhere(query),
+    include: { department: true },
+    orderBy: { employeeCode: "asc" }
+  });
+  const headers = ["employeeCode", "fullName", "email", "nationalId", "department", "jobTitle", "status", "joiningDate"];
+  const rows = employees.map((employee) => [
+    employee.employeeCode,
+    `${employee.firstName} ${employee.lastName}`,
+    employee.email,
+    employee.nationalId,
+    employee.department.name,
+    employee.jobTitle,
+    employee.status,
+    employee.joiningDate.toISOString().slice(0, 10)
+  ]);
+  await audit(req, "EXPORT", "Employee", undefined, { format: "XLSX", count: employees.length, filters: query });
+  await xlsxFile(res, "employee-master.xlsx", headers, rows, "Employees");
+});
+
+router.post("/portal-users/provision-missing", requireRoles(Role.SUPER_ADMIN, Role.ADMIN, Role.HR_MANAGER), async (req, res, next) => {
+  try {
+    const body = provisionPortalUsersSchema.parse(req.body ?? {});
+    const employees = await prisma.employee.findMany({
+      where: { archivedAt: null, user: null },
+      include: { user: true, department: true },
+      orderBy: { employeeCode: "asc" }
+    });
+    const created: Array<{ employeeCode: string; email: string; role: Role; portalStatus: string }> = [];
+    const skipped: Array<{ employeeCode: string; reason: string }> = [];
+
+    for (const employee of employees) {
+      try {
+        const email = await availablePortalEmail(employee);
+        await prisma.user.create({
+          data: {
+            email,
+            employeeId: employee.id,
+            role: body.role,
+        portalStatus: body.portalStatus,
+        passwordHash: await bcrypt.hash(crypto.randomUUID(), env.BCRYPT_ROUNDS),
+        firstLoginRequired: body.portalStatus === "PENDING_FIRST_LOGIN" || body.portalStatus === "PASSWORD_RESET_REQUIRED",
+        passwordResetRequired: body.portalStatus === "PASSWORD_RESET_REQUIRED",
+        forcePasswordChange: body.portalStatus === "PENDING_FIRST_LOGIN" || body.portalStatus === "PASSWORD_RESET_REQUIRED"
+          }
+        });
+        created.push({ employeeCode: employee.employeeCode, email, role: body.role, portalStatus: body.portalStatus });
+      } catch (error) {
+        skipped.push({ employeeCode: employee.employeeCode, reason: error instanceof Error ? error.message : "Unable to create user" });
+      }
+    }
+
+    await audit(req, "BULK_PROVISION_PORTAL_USERS", "Employee", undefined, { createdCount: created.length, skippedCount: skipped.length, role: body.role, portalStatus: body.portalStatus });
+    res.json({ message: `Created ${created.length} portal account(s).`, createdCount: created.length, skippedCount: skipped.length, created, skipped });
+  } catch (error) {
+    next(error);
+  }
 });
 
 router.get("/:id", requireRoles(...privilegedRoles), async (req, res, next) => {
@@ -206,6 +296,49 @@ router.get("/:id/print", requireRoles(...privilegedRoles), async (req, res, next
   }
 });
 
+router.post("/:id/documents", requireRoles(...writeRoles), async (req, res, next) => {
+  try {
+    const employeeId = String(req.params.id);
+    const body = documentSchema.parse(req.body);
+    const employee = await prisma.employee.findUnique({ where: { id: employeeId } });
+    if (!employee) return res.status(404).json({ message: "Employee not found" });
+    const document = await prisma.employeeDocument.create({
+      data: {
+        employeeId,
+        documentType: body.documentType,
+        fileName: body.fileName,
+        fileUrl: body.fileDataUrl ?? body.fileUrl,
+        expiryDate: body.expiryDate,
+        notes: body.notes
+      }
+    });
+    await audit(req, "UPLOAD", "EmployeeDocument", document.id, { employeeCode: employee.employeeCode, documentType: body.documentType });
+    res.status(201).json(document);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get("/:id/documents/:documentId/download", requireRoles(...privilegedRoles), async (req, res, next) => {
+  try {
+    const document = await prisma.employeeDocument.findFirst({
+      where: { id: String(req.params.documentId), employeeId: String(req.params.id), archivedAt: null }
+    });
+    if (!document) return res.status(404).json({ message: "Employee document not found" });
+    await audit(req, "DOWNLOAD", "EmployeeDocument", document.id, { fileName: document.fileName });
+    if (document.fileUrl?.startsWith("data:")) {
+      const [meta, base64] = document.fileUrl.split(",", 2);
+      const contentType = meta.match(/^data:(.*);base64$/)?.[1] ?? "application/octet-stream";
+      res.header("Content-Type", contentType);
+      res.attachment(document.fileName);
+      return res.send(Buffer.from(base64 ?? "", "base64"));
+    }
+    res.json({ fileName: document.fileName, fileUrl: document.fileUrl });
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.post("/", requireRoles(...writeRoles), async (req, res, next) => {
   try {
     const body = employeeSchema.parse(req.body);
@@ -219,7 +352,9 @@ router.post("/", requireRoles(...writeRoles), async (req, res, next) => {
         role,
         employeeId: employee.id,
         portalStatus: role === Role.EMPLOYEE ? "PENDING_FIRST_LOGIN" : "ACTIVE",
-        forcePasswordChange: Boolean(password)
+        firstLoginRequired: true,
+        passwordResetRequired: Boolean(password),
+        forcePasswordChange: true
       }
     });
 
@@ -234,10 +369,69 @@ router.patch("/:id", requireRoles(...writeRoles), async (req, res, next) => {
   try {
     const id = String(req.params.id);
     const body = updateEmployeeSchema.parse(req.body);
+    const { changeReason, ...employeeBody } = body;
+    const overrideFields = ["managerId", "departmentId", "branch", "location", "leaveBalance", "basicSalary", "housingAllowance", "transportAllowance", "otherAllowance", "bankName", "iban", "passportNumber", "nationalId", "gosiNumber", "qiwaReference"];
+    const changedOverrideFields = overrideFields.filter((field) => Object.prototype.hasOwnProperty.call(employeeBody, field));
+    if (changedOverrideFields.length && !changeReason) {
+      return res.status(400).json({ message: "Reason for change is required for admin override or confidential employee updates." });
+    }
     const previous = await prisma.employee.findUnique({ where: { id } });
     if (!previous) return res.status(404).json({ message: "Employee not found" });
-    const employee = await prisma.employee.update({ where: { id }, data: body, include: { department: true } });
-    await audit(req, "UPDATE", "Employee", id, { fields: Object.keys(body) }, previous, employee);
+    const employee = await prisma.employee.update({ where: { id }, data: employeeBody, include: { department: true, manager: true, documents: true, user: true } });
+    await audit(req, "UPDATE", "Employee", id, { fields: Object.keys(employeeBody), reason: changeReason, overrideFields: changedOverrideFields }, previous, employee);
+    res.json(employee);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.put("/:id/profile-photo", requireRoles(...writeRoles), async (req, res, next) => {
+  try {
+    const id = String(req.params.id);
+    const body = profilePhotoSchema.parse(req.body);
+    const previous = await prisma.employee.findUnique({ where: { id } });
+    if (!previous) return res.status(404).json({ message: "Employee not found" });
+    const employee = await prisma.employee.update({
+      where: { id },
+      data: {
+        photoUrl: body.dataUrl,
+        profilePhotoPath: body.dataUrl,
+        profilePhotoFileName: body.fileName,
+        profilePhotoMimeType: body.mimeType,
+        profilePhotoSize: body.size,
+        profilePhotoUploadedBy: req.user?.id,
+        profilePhotoUploadedAt: new Date(),
+        profilePhotoStatus: body.status
+      },
+      include: { department: true, manager: true, user: true }
+    });
+    await audit(req, previous.profilePhotoPath ? "PROFILE_PHOTO_REPLACED" : "PROFILE_PHOTO_UPLOADED", "Employee", id, { fileName: body.fileName, status: body.status }, previous, employee);
+    res.json(employee);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.delete("/:id/profile-photo", requireRoles(...writeRoles), async (req, res, next) => {
+  try {
+    const id = String(req.params.id);
+    const previous = await prisma.employee.findUnique({ where: { id } });
+    if (!previous) return res.status(404).json({ message: "Employee not found" });
+    const employee = await prisma.employee.update({
+      where: { id },
+      data: {
+        photoUrl: null,
+        profilePhotoPath: null,
+        profilePhotoFileName: null,
+        profilePhotoMimeType: null,
+        profilePhotoSize: null,
+        profilePhotoUploadedBy: null,
+        profilePhotoUploadedAt: null,
+        profilePhotoStatus: "ACTIVE"
+      },
+      include: { department: true, manager: true, user: true }
+    });
+    await audit(req, "PROFILE_PHOTO_DELETED", "Employee", id, undefined, previous, employee);
     res.json(employee);
   } catch (error) {
     next(error);
@@ -262,6 +456,9 @@ router.patch("/:id/user-role", requireRoles(Role.SUPER_ADMIN, Role.ADMIN, Role.H
         ...(body.password
           ? {
               passwordHash: await bcrypt.hash(body.password, env.BCRYPT_ROUNDS),
+              portalStatus: "PASSWORD_RESET_REQUIRED",
+              firstLoginRequired: true,
+              passwordResetRequired: true,
               forcePasswordChange: true,
               passwordChangedAt: new Date()
             }
@@ -273,7 +470,9 @@ router.patch("/:id/user-role", requireRoles(Role.SUPER_ADMIN, Role.ADMIN, Role.H
         employeeId: id,
         portalStatus: body.portalStatus ?? (body.role === Role.EMPLOYEE ? "PENDING_FIRST_LOGIN" : "ACTIVE"),
         passwordHash: await bcrypt.hash(body.password ?? crypto.randomUUID(), env.BCRYPT_ROUNDS),
-        forcePasswordChange: Boolean(body.password)
+        firstLoginRequired: true,
+        passwordResetRequired: Boolean(body.password),
+        forcePasswordChange: true
       }
     });
 

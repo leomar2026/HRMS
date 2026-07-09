@@ -23,6 +23,11 @@ const adminPaths = [
   ,"/announcements"
   ,"/group-management"
   ,"/admin-password-reset"
+  ,"/performance-appraisals"
+];
+
+const managerAllowedAdminPaths = [
+  "/performance-appraisals"
 ];
 
 const managerPaths = [
@@ -62,7 +67,7 @@ export function proxy(request: NextRequest) {
     return NextResponse.redirect(new URL("/employee/dashboard", request.url));
   }
 
-  if (role === "DEPARTMENT_MANAGER" && adminPaths.some((adminPath) => path === adminPath || path.startsWith(`${adminPath}/`))) {
+  if (role === "DEPARTMENT_MANAGER" && adminPaths.some((adminPath) => path === adminPath || path.startsWith(`${adminPath}/`)) && !managerAllowedAdminPaths.some((managerPath) => path === managerPath || path.startsWith(`${managerPath}/`))) {
     return NextResponse.redirect(new URL("/manager/dashboard", request.url));
   }
 
@@ -101,6 +106,7 @@ export const config = {
     "/announcements/:path*",
     "/group-management/:path*",
     "/admin-password-reset/:path*",
+    "/performance-appraisals/:path*",
     "/manager/:path*",
     "/employee/:path*"
   ]

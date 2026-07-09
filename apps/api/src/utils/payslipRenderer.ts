@@ -82,7 +82,16 @@ function formatMoney(value: MoneyValue, currency = "SAR") {
 
 function formatDate(value?: Date | string) {
   if (!value) return "-";
-  return new Date(value).toISOString().slice(0, 10);
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? "-" : value.toISOString().slice(0, 10);
+  const raw = String(value).trim();
+  if (!raw) return "-";
+  const dmy = raw.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+  if (dmy) {
+    const [, day, month, year] = dmy;
+    return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+  }
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? raw : parsed.toISOString().slice(0, 10);
 }
 
 function maskIban(iban?: string) {

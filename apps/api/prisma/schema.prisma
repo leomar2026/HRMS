@@ -113,6 +113,25 @@ enum PayrollStatus {
   EXPORTED
 }
 
+enum WorkflowStatus {
+  DRAFT
+  PENDING_MANAGER
+  PENDING_OM
+  PENDING_HR_MANAGER
+  PENDING_FINANCE
+  PENDING_ADMIN
+  RESIGNATION_APPROVED
+  EXIT_CLEARANCE_IN_PROGRESS
+  FINAL_SETTLEMENT_PENDING
+  EXIT_COMPLETED
+  FINAL_APPROVED
+  REJECTED
+  RETURNED_FOR_CORRECTION
+  CANCELLED
+  PUBLISHED
+  CLOSED
+}
+
 model User {
   id                  String               @id @default(cuid())
   email               String               @unique
@@ -124,8 +143,12 @@ model User {
   portalStatus        String               @default("ACTIVE")
   failedLoginAttempts Int                  @default(0)
   lockedUntil         DateTime?
+  firstLoginRequired  Boolean              @default(false)
+  passwordResetRequired Boolean            @default(false)
   forcePasswordChange Boolean              @default(false)
   passwordChangedAt   DateTime             @default(now())
+  lastPasswordResetBy String?
+  lastPasswordResetAt DateTime?
   passwordHistory     Json?
   sessions            UserSession[]
   resetTokens         PasswordResetToken[]
@@ -280,6 +303,13 @@ model Employee {
   medicalInsuranceExpiryDate   DateTime?
   drivingLicenseExpiryDate     DateTime?
   photoUrl                     String?
+  profilePhotoPath             String?                       @map("profile_photo_path")
+  profilePhotoFileName         String?                       @map("profile_photo_file_name")
+  profilePhotoMimeType         String?                       @map("profile_photo_mime_type")
+  profilePhotoSize             Int?                          @map("profile_photo_size")
+  profilePhotoUploadedBy       String?                       @map("profile_photo_uploaded_by")
+  profilePhotoUploadedAt       DateTime?                     @map("profile_photo_uploaded_at")
+  profilePhotoStatus           String                        @default("ACTIVE") @map("profile_photo_status")
   joiningDate                  DateTime
   status                       EmploymentStatus              @default(ACTIVE)
   basicSalary                  Decimal                       @db.Decimal(12, 2)
@@ -305,6 +335,17 @@ model Employee {
   importRows                   EmployeeImportRow[]
   groupMemberships             GroupMember[]
   documents                    EmployeeDocument[]
+  businessTrips                BusinessTripRequest[]
+  tripExpenseClaims            TripExpenseClaim[]
+  loanRequests                 EmployeeLoanRequest[]
+  performanceAppraisals        PerformanceAppraisal[]
+  manualAppraisals             ManualAppraisal[]
+  salaryHistory                EmployeeSalaryHistory[]
+  resignationRequests          ResignationRequest[]
+  exitClearanceItems           ExitClearanceItem[]
+  finalSettlements             FinalSettlement[]
+  ticketRequests               TicketRequest[]
+  pettyCashRequests            PettyCashRequest[]
   createdAt                    DateTime                      @default(now())
   updatedAt                    DateTime                      @updatedAt
   archivedAt                   DateTime?
@@ -503,6 +544,29 @@ model LeaveRequest {
   leaveAddress              String?
   emergencyContact          String?
   attachmentName            String?
+  destinationCountry         String?
+  destinationCity            String?
+  mobileWhileOnLeave         String?
+  personalEmailWhileOnLeave  String?
+  emergencyContactName       String?
+  emergencyContactNumber     String?
+  emergencyContactRelationship String?
+  lastWorkingDay             DateTime?
+  returnToWorkDate           DateTime?
+  relieverId                 String?
+  relieverName               String?
+  relieverEmployeeCode       String?
+  relieverDepartment         String?
+  relieverDesignation        String?
+  relieverManager            String?
+  handoverRequired           Boolean           @default(false)
+  handoverDetails            String?
+  handoverAttachment         String?
+  relieverAcknowledgementStatus String           @default("PENDING")
+  annualVacationRemarks      String?
+  attachments                Json?
+  ticketRequests             TicketRequest[]
+  pettyCashRequests          PettyCashRequest[]
   availableBalanceAtRequest Int?
   workflowStage             String            @default("PENDING_MANAGER_APPROVAL")
   comments                  String?
@@ -512,6 +576,91 @@ model LeaveRequest {
   approvalHistory           ApprovalHistory[]
   createdAt                 DateTime          @default(now())
   updatedAt                 DateTime          @updatedAt
+}
+
+model TicketRequest {
+  id                      String         @id @default(cuid())
+  requestNumber           String         @unique
+  leaveRequestId          String
+  leaveRequest            LeaveRequest   @relation(fields: [leaveRequestId], references: [id])
+  employeeId              String
+  employee                Employee       @relation(fields: [employeeId], references: [id])
+  departureCountry        String?
+  departureCity           String?
+  arrivalCountry          String
+  arrivalCity             String
+  preferredDepartureDate  DateTime
+  preferredReturnDate     DateTime?
+  preferredAirline        String?
+  preferredFlightTime     String?
+  passportNumber          String?
+  passportExpiryDate      DateTime?
+  iqamaNumber             String?
+  iqamaExpiryDate         DateTime?
+  visaRequirement         String?
+  travelClass             String?
+  ticketType              String         @default("RETURN")
+  familyTicketRequired    Boolean        @default(false)
+  familyMemberDetails     Json?
+  estimatedTicketCost     Decimal        @default(0) @db.Decimal(12, 2)
+  costCenter              String?
+  projectCode             String?
+  remarks                 String?
+  attachments             Json?
+  bookingReference        String?
+  ticketCopyReference     String?
+  currentApprover         String?
+  status                  WorkflowStatus @default(DRAFT)
+  approvalTimeline        Json?
+  createdBy               String?
+  createdAt               DateTime       @default(now())
+  updatedAt               DateTime       @updatedAt
+  archivedAt              DateTime?
+}
+
+model PettyCashRequest {
+  id                     String         @id @default(cuid())
+  requestNumber          String         @unique
+  employeeId             String
+  employee               Employee       @relation(fields: [employeeId], references: [id])
+  requestDate            DateTime       @default(now())
+  requestType            String
+  purpose                String
+  businessTripReference  String?
+  linkedLeaveRequestId   String?
+  linkedLeaveRequest     LeaveRequest?  @relation(fields: [linkedLeaveRequestId], references: [id])
+  costCenter             String?
+  projectCode            String?
+  requestedAmount        Decimal        @db.Decimal(12, 2)
+  approvedAmount         Decimal        @default(0) @db.Decimal(12, 2)
+  paidAmount             Decimal        @default(0) @db.Decimal(12, 2)
+  settledAmount          Decimal        @default(0) @db.Decimal(12, 2)
+  outstandingAmount      Decimal        @default(0) @db.Decimal(12, 2)
+  currency               String         @default("SAR")
+  exchangeRate           Decimal        @default(1) @db.Decimal(12, 4)
+  amountSar              Decimal        @db.Decimal(12, 2)
+  requiredDate           DateTime
+  paymentMethod          String?
+  bankName               String?
+  iban                   String?
+  cashCollectionLocation String?
+  detailedJustification  String
+  remarks                String?
+  attachments            Json?
+  settlementAttachments  Json?
+  settlementDueDate      DateTime?
+  paidAt                 DateTime?
+  currentApprover        String?
+  status                 WorkflowStatus @default(DRAFT)
+  paymentStatus          String         @default("UNPAID")
+  settlementStatus       String         @default("NOT_REQUIRED")
+  approvalTimeline       Json?
+  paymentHistory         Json?
+  settlementHistory      Json?
+  createdBy              String?
+  createdAt              DateTime       @default(now())
+  updatedAt              DateTime       @updatedAt
+  archivedAt             DateTime?
 }
 
 model SystemSetting {
@@ -756,6 +905,27 @@ model EmployeeDocument {
   archivedAt   DateTime?
 }
 
+model Attachment {
+  id                  String    @id @default(cuid())
+  relatedModule       String
+  relatedRecordId     String?
+  relatedRecordNumber String?
+  employeeId          String?
+  originalFileName    String
+  storedFileName      String
+  filePath            String
+  fileUrl             String
+  mimeType            String
+  sizeBytes           Int
+  uploadedBy          String?
+  status              String    @default("ACTIVE")
+  confidential        Boolean   @default(false)
+  metadata            Json?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  archivedAt          DateTime?
+}
+
 model MasterData {
   id         String    @id @default(cuid())
   type       String
@@ -900,4 +1070,401 @@ model GroupMember {
   createdAt  DateTime        @default(now())
 
   @@unique([groupId, employeeId])
+}
+
+model BusinessTripRequest {
+  id                    String         @id @default(cuid())
+  requestNumber         String         @unique
+  employeeId            String
+  employee              Employee       @relation(fields: [employeeId], references: [id])
+  tripType              String
+  purpose               String
+  destinationCountry    String?
+  destinationCity       String?
+  startDate             DateTime
+  endDate               DateTime
+  totalDays             Int
+  travelMethod          String?
+  transportDetails      String?
+  estimatedTicketCost   Decimal        @default(0) @db.Decimal(12, 2)
+  estimatedHotelCost    Decimal        @default(0) @db.Decimal(12, 2)
+  estimatedDailyAllowance Decimal      @default(0) @db.Decimal(12, 2)
+  estimatedOtherExpenses Decimal       @default(0) @db.Decimal(12, 2)
+  totalEstimatedCost    Decimal        @default(0) @db.Decimal(12, 2)
+  costCenter            String?
+  projectCode           String?
+  clientSiteName        String?
+  advanceRequired       Boolean        @default(false)
+  requestedAdvanceAmount Decimal       @default(0) @db.Decimal(12, 2)
+  remarks               String?
+  attachmentName        String?
+  currentApprover       String?
+  status                WorkflowStatus @default(DRAFT)
+  approvalTimeline      Json?
+  expenseClaims         TripExpenseClaim[]
+  createdBy             String?
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+  archivedAt            DateTime?
+}
+
+model TripExpenseClaim {
+  id                    String         @id @default(cuid())
+  claimNumber           String         @unique
+  tripRequestId         String
+  tripRequest           BusinessTripRequest @relation(fields: [tripRequestId], references: [id])
+  employeeId            String
+  employee              Employee       @relation(fields: [employeeId], references: [id])
+  expenseDate           DateTime
+  expenseCategory       String
+  amount                Decimal        @db.Decimal(12, 2)
+  currency              String         @default("SAR")
+  exchangeRate          Decimal        @default(1) @db.Decimal(12, 4)
+  amountSar             Decimal        @db.Decimal(12, 2)
+  description           String?
+  receiptAttachment     String?
+  totalClaimedAmount    Decimal        @default(0) @db.Decimal(12, 2)
+  advanceReceived       Decimal        @default(0) @db.Decimal(12, 2)
+  finalReimbursement    Decimal        @default(0) @db.Decimal(12, 2)
+  status                WorkflowStatus @default(PENDING_MANAGER)
+  approvalTimeline      Json?
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+}
+
+model EmployeeLoanRequest {
+  id                    String         @id @default(cuid())
+  requestNumber         String         @unique
+  employeeId            String
+  employee              Employee       @relation(fields: [employeeId], references: [id])
+  loanType              String
+  requestedAmount       Decimal        @db.Decimal(12, 2)
+  approvedAmount        Decimal        @default(0) @db.Decimal(12, 2)
+  reason                String
+  requestedDisbursementDate DateTime?
+  numberOfInstallments  Int
+  monthlyInstallmentAmount Decimal     @db.Decimal(12, 2)
+  firstDeductionDate    DateTime?
+  lastDeductionDate     DateTime?
+  existingLoanBalance   Decimal        @default(0) @db.Decimal(12, 2)
+  outstandingBalance    Decimal        @default(0) @db.Decimal(12, 2)
+  salaryAdvanceDeductionOption String?
+  bankName              String?
+  iban                  String?
+  attachmentName        String?
+  remarks               String?
+  disbursementDate      DateTime?
+  status                WorkflowStatus @default(DRAFT)
+  loanStatus            String         @default("REQUESTED")
+  approvalTimeline      Json?
+  repaymentSchedule     LoanRepaymentSchedule[]
+  createdBy             String?
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+  archivedAt            DateTime?
+}
+
+model LoanRepaymentSchedule {
+  id              String   @id @default(cuid())
+  loanRequestId   String
+  loanRequest     EmployeeLoanRequest @relation(fields: [loanRequestId], references: [id])
+  installmentNo   Int
+  payrollPeriod   String?
+  dueDate         DateTime
+  amount          Decimal  @db.Decimal(12, 2)
+  paidAmount      Decimal  @default(0) @db.Decimal(12, 2)
+  status          String   @default("PENDING")
+  deductedAt      DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([loanRequestId, installmentNo])
+}
+
+model AppraisalPeriod {
+  id              String   @id @default(cuid())
+  code            String   @unique
+  year            Int
+  startDate       DateTime
+  endDate         DateTime
+  reviewDueDate   DateTime?
+  status          String   @default("DRAFT")
+  company         String?
+  branch          String?
+  department      String?
+  employeeGroup   String?
+  templateId      String?
+  weightingMethod String?
+  createdBy       String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model AppraisalTemplate {
+  id              String   @id @default(cuid())
+  name            String
+  applicability   Json?
+  ratingScale     Json?
+  sections        Json?
+  active          Boolean  @default(true)
+  createdBy       String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model PerformanceAppraisal {
+  id                    String         @id @default(cuid())
+  referenceNumber       String         @unique
+  employeeId            String
+  employee              Employee       @relation(fields: [employeeId], references: [id])
+  periodCode            String
+  templateId            String?
+  selfAssessment        Json?
+  managerEvaluation     Json?
+  omReview              Json?
+  hrFinalization        Json?
+  goalsNextPeriod       Json?
+  finalScore            Decimal        @default(0) @db.Decimal(8, 2)
+  finalRating           String?
+  recommendation        String?
+  publishedAt           DateTime?
+  status                WorkflowStatus @default(DRAFT)
+  approvalTimeline      Json?
+  createdBy             String?
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+  archivedAt            DateTime?
+}
+
+model ManualAppraisal {
+  id                        String                     @id @default(cuid())
+  referenceNumber           String                     @unique
+  employeeId                String
+  employee                  Employee                   @relation(fields: [employeeId], references: [id])
+  appraisalType             String
+  effectiveDate             DateTime
+  currentBasicSalary        Decimal                    @db.Decimal(12, 2)
+  currentHousingAllowance   Decimal                    @db.Decimal(12, 2)
+  currentTransportAllowance Decimal                    @db.Decimal(12, 2)
+  currentOtherAllowance     Decimal                    @db.Decimal(12, 2)
+  currentGrossSalary        Decimal                    @db.Decimal(12, 2)
+  payrollGroup              String?
+  appraisalMethod           String
+  salaryBase                String                     @default("Basic Salary")
+  applyToComponent          String                     @default("Basic Salary")
+  appraisalPercentage       Decimal                    @default(0) @db.Decimal(8, 2)
+  appraisalAmount           Decimal                    @default(0) @db.Decimal(12, 2)
+  newBasicSalary            Decimal                    @db.Decimal(12, 2)
+  newHousingAllowance       Decimal                    @db.Decimal(12, 2)
+  newTransportAllowance     Decimal                    @db.Decimal(12, 2)
+  newOtherAllowance         Decimal                    @db.Decimal(12, 2)
+  newGrossSalary            Decimal                    @db.Decimal(12, 2)
+  salaryDifference          Decimal                    @db.Decimal(12, 2)
+  reason                    String
+  customReason              String?
+  performanceRating         String?
+  managerRecommendation     String?
+  hrRemarks                 String?
+  attachmentName            String?
+  status                    String                     @default("DRAFT")
+  currentApprover           String?
+  approvalTimeline          Json?
+  createdBy                 String?
+  approvedBy                String?
+  approvedAt                DateTime?
+  appliedAt                 DateTime?
+  createdAt                 DateTime                   @default(now())
+  updatedAt                 DateTime                   @updatedAt
+  archivedAt                DateTime?
+  batchDetails              AppraisalBatchDetail[]
+  approvalHistory           AppraisalApprovalHistory[]
+}
+
+model AppraisalBatch {
+  id                  String                 @id @default(cuid())
+  batchNumber         String                 @unique
+  uploadFileName      String
+  uploadedBy          String?
+  numberOfEmployees   Int                    @default(0)
+  totalCurrentSalary  Decimal                @default(0) @db.Decimal(14, 2)
+  totalIncreaseAmount Decimal                @default(0) @db.Decimal(14, 2)
+  totalNewSalary      Decimal                @default(0) @db.Decimal(14, 2)
+  status              String                 @default("DRAFT")
+  currentApprover     String?
+  errorReport         Json?
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+  details             AppraisalBatchDetail[]
+}
+
+model AppraisalBatchDetail {
+  id                    String           @id @default(cuid())
+  batchId               String
+  batch                 AppraisalBatch   @relation(fields: [batchId], references: [id])
+  manualAppraisalId     String?
+  manualAppraisal       ManualAppraisal? @relation(fields: [manualAppraisalId], references: [id])
+  employeeId            String?
+  employeeCode          String
+  employeeName          String
+  department            String?
+  currentBasicSalary    Decimal          @default(0) @db.Decimal(12, 2)
+  currentGrossSalary    Decimal          @default(0) @db.Decimal(12, 2)
+  appraisalType         String
+  effectiveDate         DateTime?
+  appraisalMethod       String
+  appraisalPercentage   Decimal          @default(0) @db.Decimal(8, 2)
+  appraisalAmount       Decimal          @default(0) @db.Decimal(12, 2)
+  applyToComponent      String
+  newBasicSalary        Decimal          @default(0) @db.Decimal(12, 2)
+  newHousingAllowance   Decimal          @default(0) @db.Decimal(12, 2)
+  newTransportAllowance Decimal          @default(0) @db.Decimal(12, 2)
+  newOtherAllowance     Decimal          @default(0) @db.Decimal(12, 2)
+  newGrossSalary        Decimal          @default(0) @db.Decimal(12, 2)
+  reason                String?
+  performanceRating     String?
+  remarks               String?
+  validationStatus      String           @default("PENDING")
+  validationErrors      Json?
+  approvalStatus        String           @default("DRAFT")
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
+}
+
+model EmployeeSalaryHistory {
+  id                 String   @id @default(cuid())
+  employeeId         String
+  employee           Employee @relation(fields: [employeeId], references: [id])
+  appraisalId        String?
+  referenceNumber    String
+  effectiveDate      DateTime
+  oldBasicSalary     Decimal  @db.Decimal(12, 2)
+  oldGrossSalary     Decimal  @db.Decimal(12, 2)
+  increaseAmount     Decimal  @db.Decimal(12, 2)
+  increasePercentage Decimal  @default(0) @db.Decimal(8, 2)
+  newBasicSalary     Decimal  @db.Decimal(12, 2)
+  newGrossSalary     Decimal  @db.Decimal(12, 2)
+  reason             String
+  approvedBy         String?
+  approvalDate       DateTime?
+  status             String
+  attachmentName     String?
+  remarks            String?
+  createdAt          DateTime @default(now())
+}
+
+model AppraisalApprovalHistory {
+  id             String          @id @default(cuid())
+  appraisalId    String
+  appraisal      ManualAppraisal @relation(fields: [appraisalId], references: [id])
+  action         String
+  previousStatus String?
+  newStatus      String
+  comments       String?
+  actedBy        String?
+  actedRole      String?
+  createdAt      DateTime        @default(now())
+}
+
+model ResignationRequest {
+  id                      String              @id @default(cuid())
+  requestNumber           String              @unique
+  employeeId              String
+  employee                Employee            @relation(fields: [employeeId], references: [id])
+  proposedLastWorkingDate DateTime
+  noticePeriodRequired    Int                 @default(30)
+  noticePeriodServed      Int                 @default(0)
+  resignationReason       String
+  detailedRemarks         String?
+  attachmentName          String?
+  employeeContactNumber   String?
+  personalEmail           String?
+  forwardingAddress       String?
+  employeeConfirmed       Boolean             @default(false)
+  currentApprover         String?
+  status                  WorkflowStatus      @default(DRAFT)
+  approvalTimeline        Json?
+  clearanceItems          ExitClearanceItem[]
+  finalSettlement         FinalSettlement?
+  createdBy               String?
+  createdAt               DateTime            @default(now())
+  updatedAt               DateTime            @updatedAt
+  archivedAt              DateTime?
+}
+
+model ExitClearanceItem {
+  id                 String             @id @default(cuid())
+  clearanceNumber    String             @unique
+  resignationId      String
+  resignation        ResignationRequest @relation(fields: [resignationId], references: [id])
+  employeeId         String
+  employee           Employee           @relation(fields: [employeeId], references: [id])
+  assignedDepartment String
+  clearanceItem      String
+  assignedOfficer    String?
+  mandatory          Boolean            @default(true)
+  status             String             @default("PENDING")
+  remarks            String?
+  attachmentName     String?
+  completedDate      DateTime?
+  completedBy        String?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+}
+
+model FinalSettlement {
+  id                     String             @id @default(cuid())
+  settlementNumber       String             @unique
+  resignationId          String             @unique
+  resignation            ResignationRequest @relation(fields: [resignationId], references: [id])
+  employeeId             String
+  employee               Employee           @relation(fields: [employeeId], references: [id])
+  lastWorkingDate        DateTime
+  yearsOfService         Decimal            @default(0) @db.Decimal(8, 2)
+  basicSalary            Decimal            @default(0) @db.Decimal(12, 2)
+  leaveEncashment        Decimal            @default(0) @db.Decimal(12, 2)
+  pendingSalary          Decimal            @default(0) @db.Decimal(12, 2)
+  overtime               Decimal            @default(0) @db.Decimal(12, 2)
+  bonus                  Decimal            @default(0) @db.Decimal(12, 2)
+  otherEarnings          Decimal            @default(0) @db.Decimal(12, 2)
+  loanDeduction          Decimal            @default(0) @db.Decimal(12, 2)
+  salaryAdvanceDeduction Decimal            @default(0) @db.Decimal(12, 2)
+  absenceDeduction       Decimal            @default(0) @db.Decimal(12, 2)
+  otherDeductions        Decimal            @default(0) @db.Decimal(12, 2)
+  endOfServiceBenefit    Decimal            @default(0) @db.Decimal(12, 2)
+  totalEarnings          Decimal            @default(0) @db.Decimal(12, 2)
+  totalDeductions        Decimal            @default(0) @db.Decimal(12, 2)
+  netFinalSettlement     Decimal            @default(0) @db.Decimal(12, 2)
+  paymentDate            DateTime?
+  paymentMethod          String?
+  bankName               String?
+  iban                   String?
+  financeApproval        String?
+  hrApproval             String?
+  adminApproval          String?
+  status                 String             @default("DRAFT")
+  approvalTimeline       Json?
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+}
+
+model WorkflowDefinition {
+  id                 String    @id @default(cuid())
+  workflowCode       String    @unique
+  workflowName       String
+  processType        String
+  company            String?
+  branch             String?
+  department         String?
+  employeeGroup      String?
+  leaveType          String?
+  amountThreshold    Decimal?  @db.Decimal(12, 2)
+  effectiveStartDate DateTime?
+  effectiveEndDate   DateTime?
+  status             String    @default("DRAFT")
+  description        String?
+  steps              Json
+  createdBy          String?
+  updatedBy          String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 }

@@ -1,6 +1,8 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
+import fs from "node:fs";
+import path from "node:path";
 import { EmploymentStatus, Role } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
@@ -11,6 +13,7 @@ import { audit } from "../utils/audit.js";
 import { env } from "../config/env.js";
 
 const router = Router();
+const previewImportedEmployeesPath = path.join(process.cwd(), ".preview", "imported-employees.json");
 
 const loginSchema = z.object({
   loginId: z.string().min(2).optional(),
@@ -41,6 +44,11 @@ const adminResetSchema = z.object({
   password: z.string().min(8),
   forceChange: z.boolean().default(true),
   reason: z.string().optional()
+});
+const changePasswordSchema = z.object({
+  currentPassword: z.string().min(8),
+  newPassword: z.string().min(8),
+  confirmPassword: z.string().min(8)
 });
 const portalStatusSchema = z.object({ userId: z.string(), portalStatus: z.enum(["PENDING_FIRST_LOGIN", "ACTIVE", "PASSWORD_RESET_REQUIRED", "LOCKED", "DISABLED", "ARCHIVED"]) });
 
@@ -84,6 +92,21 @@ function dashboardForRole(role: Role) {
   return "/dashboard";
 }
 
+function previewImportedEmployeeLogin(loginId: string) {
+  try {
+    if (!fs.existsSync(previewImportedEmployeesPath)) return null;
+    const parsed = JSON.parse(fs.readFileSync(previewImportedEmployeesPath, "utf8"));
+    if (!Array.isArray(parsed)) return null;
+    return (parsed as Array<Record<string, unknown>>).find((employee) => {
+      const code = String(employee.employeeCode ?? "");
+      const email = String(employee.email ?? employee.companyEmail ?? "");
+      return [code, email].filter(Boolean).includes(loginId);
+    }) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 router.post("/login", async (req, res, next) => {
   try {
     const body = loginSchema.parse(req.body);
@@ -94,7 +117,20 @@ router.post("/login", async (req, res, next) => {
       return res.json({ token, user, redirectTo: "/dashboard" });
     }
 
-    if (env.HRMS_PREVIEW_MODE && ["EMP-002", "employee@company.com", "10075"].includes(loginId) && body.password === "Employee@123") {
+    const previewImportedEmployee = env.HRMS_PREVIEW_MODE && body.password === "Employee@123" ? previewImportedEmployeeLogin(loginId) : null;
+    if (previewImportedEmployee) {
+      const employeeCode = String(previewImportedEmployee.employeeCode ?? loginId);
+      const user = {
+        id: `preview-user-${employeeCode}`,
+        email: String(previewImportedEmployee.email ?? previewImportedEmployee.companyEmail ?? `${employeeCode}@company.local`),
+        role: "EMPLOYEE" as const,
+        employeeId: String(previewImportedEmployee.id ?? `preview-${employeeCode}`)
+      };
+      const token = signAccessToken({ sub: user.id, email: user.email, role: user.role, employeeId: user.employeeId });
+      return res.json({ token, user, redirectTo: "/employee/dashboard" });
+    }
+
+    if (env.HRMS_PREVIEW_MODE && ["EMP-002", "employee@company.com"].includes(loginId) && body.password === "Employee@123") {
       const user = { id: "preview-employee-user", email: "employee@company.com", role: "EMPLOYEE" as const, employeeId: "preview-employee-2" };
       const token = signAccessToken({ sub: user.id, email: user.email, role: user.role, employeeId: user.employeeId });
       return res.json({ token, user, redirectTo: "/employee/dashboard" });
@@ -124,7 +160,7 @@ router.post("/login", async (req, res, next) => {
       await logLogin(req, loginId, "FAILED", "Invalid credentials", user?.id);
       throw new AppError(401, "Invalid email or password");
     }
-    if (["PENDING_FIRST_LOGIN", "PASSWORD_RESET_REQUIRED", "DISABLED", "ARCHIVED"].includes(user.portalStatus)) {
+    if (["DISABLED", "ARCHIVED"].includes(user.portalStatus)) {
       await logLogin(req, loginId, "BLOCKED", `Portal status ${user.portalStatus}`, user.id);
       throw new AppError(403, `Portal account status is ${user.portalStatus}`);
     }
@@ -164,7 +200,13 @@ router.post("/login", async (req, res, next) => {
     req.user = { id: user.id, email: user.email, role: user.role, employeeId: user.employeeId, sessionId };
     await logLogin(req, loginId, "SUCCESS", undefined, user.id);
     await audit(req, "LOGIN", "User", user.id);
-    res.json({ token, user: req.user, redirectTo: dashboardForRole(user.role), forcePasswordChange: user.forcePasswordChange });
+    const mustChangePassword = user.forcePasswordChange || user.firstLoginRequired || user.passwordResetRequired || ["PENDING_FIRST_LOGIN", "PASSWORD_RESET_REQUIRED"].includes(user.portalStatus);
+    res.json({
+      token,
+      user: req.user,
+      redirectTo: mustChangePassword ? "/change-password" : dashboardForRole(user.role),
+      forcePasswordChange: mustChangePassword
+    });
   } catch (error) {
     next(error);
   }
@@ -181,6 +223,44 @@ router.post("/logout", async (req, res, next) => {
       if (req.user) await audit(req, "LOGOUT", "User", req.user.id);
     }
     res.json({ ok: true, message: "You have been logged out successfully." });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/change-password", requireAuth, async (req, res, next) => {
+  try {
+    const body = changePasswordSchema.parse(req.body);
+    if (body.newPassword !== body.confirmPassword) throw new AppError(400, "Password confirmation does not match");
+    const user = await prisma.user.findUnique({ where: { id: String(req.user?.id) }, include: { employee: true } });
+    if (!user) throw new AppError(404, "User not found");
+    if (!(await bcrypt.compare(body.currentPassword, user.passwordHash))) {
+      await audit(req, "PASSWORD_CHANGE_FAILED", "User", user.id, { reason: "Invalid current password" });
+      throw new AppError(400, "Current password is incorrect");
+    }
+    if (await bcrypt.compare(body.newPassword, user.passwordHash)) throw new AppError(400, "New password cannot match the current password");
+    assertStrongPassword(body.newPassword, user.employee?.employeeCode);
+    await prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: user.id },
+        data: {
+          passwordHash: await bcrypt.hash(body.newPassword, env.BCRYPT_ROUNDS),
+          portalStatus: "ACTIVE",
+          firstLoginRequired: false,
+          passwordResetRequired: false,
+          forcePasswordChange: false,
+          passwordChangedAt: new Date(),
+          failedLoginAttempts: 0,
+          lockedUntil: null
+        }
+      });
+      await tx.userSession.updateMany({
+        where: { userId: user.id, tokenId: { not: req.user?.sessionId ?? "" }, revokedAt: null },
+        data: { revokedAt: new Date() }
+      });
+    });
+    await audit(req, "PASSWORD_CHANGED", "User", user.id);
+    res.json({ ok: true, redirectTo: dashboardForRole(user.role) });
   } catch (error) {
     next(error);
   }
@@ -304,6 +384,8 @@ router.post("/first-time/complete", async (req, res, next) => {
         data: {
           passwordHash: await bcrypt.hash(body.password, env.BCRYPT_ROUNDS),
           portalStatus: "ACTIVE",
+          firstLoginRequired: false,
+          passwordResetRequired: false,
           forcePasswordChange: false,
           passwordChangedAt: new Date(),
           failedLoginAttempts: 0,
@@ -337,6 +419,9 @@ router.post("/reset-password", async (req, res, next) => {
         data: {
           passwordHash: await bcrypt.hash(body.password, env.BCRYPT_ROUNDS),
           passwordChangedAt: new Date(),
+          portalStatus: "ACTIVE",
+          firstLoginRequired: false,
+          passwordResetRequired: false,
           forcePasswordChange: false,
           failedLoginAttempts: 0,
           lockedUntil: null
@@ -439,12 +524,16 @@ router.post("/admin/reset-password", requireAuth, requireRoles(Role.ADMIN, Role.
     assertStrongPassword(body.password);
     const updated = await prisma.user.update({
       where: { id: body.userId },
-      data: {
-        passwordHash: await bcrypt.hash(body.password, env.BCRYPT_ROUNDS),
-        passwordChangedAt: new Date(),
-        forcePasswordChange: body.forceChange,
-        portalStatus: "PASSWORD_RESET_REQUIRED",
-        failedLoginAttempts: 0,
+        data: {
+          passwordHash: await bcrypt.hash(body.password, env.BCRYPT_ROUNDS),
+          passwordChangedAt: new Date(),
+          forcePasswordChange: body.forceChange,
+          firstLoginRequired: body.forceChange,
+          passwordResetRequired: body.forceChange,
+          portalStatus: "PASSWORD_RESET_REQUIRED",
+          lastPasswordResetBy: req.user?.id,
+          lastPasswordResetAt: new Date(),
+          failedLoginAttempts: 0,
         lockedUntil: null
       }
     });

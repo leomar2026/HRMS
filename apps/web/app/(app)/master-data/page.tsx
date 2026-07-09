@@ -1,4 +1,4 @@
-import { MasterDataForm } from "@/components/AdminForms";
+import { MasterDataEditForm, MasterDataForm } from "@/components/AdminForms";
 import { RowActionMenu, TableToolbar } from "@/components/DataTableControls";
 import { apiFetch } from "@/lib/api";
 
@@ -36,7 +36,10 @@ export default async function MasterDataPage() {
                 <td>{record.name}</td>
                 <td>{record.nameArabic ?? "-"}</td>
                 <td><span className="status">{record.active ? "ACTIVE" : "INACTIVE"}</span></td>
-                <td><RowActionMenu actions={[{ label: "Open related groups", href: `/group-management?type=${encodeURIComponent(record.type)}` }]} /></td>
+                <td>
+                  <MasterDataEditForm record={record} />
+                  <RowActionMenu actions={[{ label: "Open related groups", href: `/group-management?type=${encodeURIComponent(record.type)}` }]} />
+                </td>
               </tr>
             ))}
           </tbody>

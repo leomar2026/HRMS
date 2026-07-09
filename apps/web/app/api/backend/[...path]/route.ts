@@ -9,7 +9,7 @@ async function proxy(request: Request, context: { params: Promise<{ path: string
   const token = cookieStore.get("hrms_token")?.value;
   const url = new URL(request.url);
   const target = `${apiUrl}/api/${params.path.join("/")}${url.search}`;
-  const body = ["GET", "HEAD"].includes(request.method) ? undefined : await request.text();
+  const body = ["GET", "HEAD"].includes(request.method) ? undefined : await request.arrayBuffer();
   const response = await fetch(target, {
     method: request.method,
     headers: {

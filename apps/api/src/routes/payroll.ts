@@ -19,9 +19,15 @@ const generateSchema = z.object({
 
 router.use(requireAuth);
 
+function payrollItemWithoutGosi<T extends { gosiDeduction: unknown; netSalary: unknown }>(item: T) {
+  const previousGosi = Number(item.gosiDeduction ?? 0);
+  const adjustedNet = Number(item.netSalary ?? 0) + previousGosi;
+  return { ...item, gosiDeduction: "0.00", netSalary: adjustedNet.toFixed(2) };
+}
+
 router.get("/", requireRoles(Role.ADMIN, Role.HR, Role.ACCOUNTANT), async (_req, res) => {
   const runs = await prisma.payrollRun.findMany({ include: { items: { include: { employee: true } } }, orderBy: [{ year: "desc" }, { month: "desc" }] });
-  res.json(runs);
+  res.json(runs.map((run) => ({ ...run, items: run.items.map(payrollItemWithoutGosi) })));
 });
 
 router.post("/generate", requireRoles(Role.ADMIN, Role.HR, Role.ACCOUNTANT), async (req, res, next) => {
@@ -105,7 +111,7 @@ router.get("/:id/mudad-wps.csv", requireRoles(Role.ADMIN, Role.ACCOUNTANT), asyn
 
     const header = "employeeCode,nationalId,employeeName,netSalary,payrollMonth,payrollYear";
     const lines = run.items.map((item) =>
-      [item.employee.employeeCode, item.employee.nationalId, `${item.employee.firstName} ${item.employee.lastName}`, item.netSalary, run.month, run.year].join(",")
+      [item.employee.employeeCode, item.employee.nationalId, `${item.employee.firstName} ${item.employee.lastName}`, payrollItemWithoutGosi(item).netSalary, run.month, run.year].join(",")
     );
 
     await prisma.payrollRun.update({ where: { id: run.id }, data: { status: "EXPORTED" } });
@@ -129,6 +135,7 @@ router.get("/items/:id/payslip.pdf", requireAuth, async (req, res, next) => {
     if (req.user?.role === Role.EMPLOYEE && req.user.employeeId !== item.employeeId) throw new AppError(403, "Insufficient permissions");
 
     const company = payslipCompanyFromProfile(await getCurrentCompanyProfile());
+    const adjustedItem = payrollItemWithoutGosi(item);
     renderPayslipPdf(res, {
       company,
       employee: {
@@ -162,10 +169,9 @@ router.get("/items/:id/payslip.pdf", requireAuth, async (req, res, next) => {
       ],
       deductions: [
         { name: "Absence Deduction", value: item.absenceDeduction },
-        { name: "Loan Deduction", value: item.loanDeduction },
-        { name: "GOSI Employee Contribution", value: item.gosiDeduction }
+        { name: "Loan Deduction", value: item.loanDeduction }
       ],
-      netSalary: item.netSalary
+      netSalary: adjustedItem.netSalary
     });
   } catch (error) {
     next(error);

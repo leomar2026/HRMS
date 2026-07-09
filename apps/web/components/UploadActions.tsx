@@ -15,8 +15,28 @@ export function UploadForm({ kind }: { kind: UploadKind }) {
   const router = useRouter();
   const [message, setMessage] = useState("");
   const [errors, setErrors] = useState<Array<{ row: number; column: string; message: string }>>([]);
+  const [fileName, setFileName] = useState("");
 
   async function submit(formData: FormData) {
+    const file = formData.get("file");
+    const filePayload: { fileName?: string; content?: string; contentBase64?: string } = {};
+    if (file instanceof File && file.size > 0) {
+      filePayload.fileName = file.name;
+      if (file.name.toLowerCase().endsWith(".csv")) filePayload.content = await file.text();
+      else {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        let binary = "";
+        for (const byte of bytes) binary += String.fromCharCode(byte);
+        filePayload.contentBase64 = btoa(binary);
+      }
+    } else {
+      filePayload.content = String(formData.get("content") ?? "");
+    }
+    if (!filePayload.content && !filePayload.contentBase64) {
+      setMessage("Please browse and select a CSV/Excel file, or paste CSV content.");
+      return;
+    }
+
     const payload = kind === "payroll"
       ? {
           month: formData.get("month"),
@@ -25,14 +45,14 @@ export function UploadForm({ kind }: { kind: UploadKind }) {
           branch: formData.get("branch"),
           payrollType: formData.get("payrollType"),
           paymentDate: formData.get("paymentDate"),
-          content: formData.get("content")
+          ...filePayload
         }
       : {
           company: formData.get("company"),
           branch: formData.get("branch"),
           leaveYear: formData.get("leaveYear"),
           leaveType: formData.get("leaveType"),
-          content: formData.get("content")
+          ...filePayload
         };
 
     const validation = await fetch(`${endpoints[kind]}/validate`, {
@@ -77,8 +97,15 @@ export function UploadForm({ kind }: { kind: UploadKind }) {
         )}
       </div>
       <label className="field">
-        <span>{kind === "payroll" ? "Payroll CSV content" : "Leave balance CSV content"}</span>
-        <textarea name="content" required />
+        <span>{kind === "payroll" ? "Browse payroll CSV/Excel file" : "Browse leave balance CSV/Excel file"}</span>
+        <div className="upload-browse-row">
+          <input name="file" type="file" accept=".csv,.xlsx,.xls" onChange={(event) => setFileName(event.target.files?.[0]?.name ?? "")} />
+          <span className="muted">{fileName || "No file selected"}</span>
+        </div>
+      </label>
+      <label className="field">
+        <span>{kind === "payroll" ? "Payroll CSV content fallback" : "Leave balance CSV content fallback"}</span>
+        <textarea name="content" />
       </label>
       <div className="actions">
         <button className="button" type="submit"><Upload size={18} /> Validate and save draft</button>

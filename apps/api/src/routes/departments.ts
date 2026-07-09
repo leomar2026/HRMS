@@ -78,4 +78,32 @@ router.post("/", requireRoles(...writeRoles), async (req, res, next) => {
   }
 });
 
+router.patch("/:id", requireRoles(...writeRoles), async (req, res, next) => {
+  try {
+    const id = String(req.params.id);
+    const data = schema.partial().parse(req.body);
+    const previous = await prisma.department.findUnique({ where: { id } });
+    if (!previous) return res.status(404).json({ message: "Department not found" });
+    const department = await prisma.department.update({ where: { id }, data });
+    await audit(req, "UPDATE", "Department", id, { fields: Object.keys(data) }, previous, department);
+    res.json(department);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.delete("/:id", requireRoles(Role.SUPER_ADMIN, Role.ADMIN, Role.HR_MANAGER), async (req, res, next) => {
+  try {
+    const id = String(req.params.id);
+    const previous = await prisma.department.findUnique({ where: { id }, include: { _count: { select: { employees: true } } } });
+    if (!previous) return res.status(404).json({ message: "Department not found" });
+    if (previous._count.employees > 0) return res.status(409).json({ message: "Department has assigned employees. Move employees before archiving this department." });
+    const department = await prisma.department.delete({ where: { id } });
+    await audit(req, "ARCHIVE", "Department", id, undefined, previous, department);
+    res.json(department);
+  } catch (error) {
+    next(error);
+  }
+});
+
 export default router;

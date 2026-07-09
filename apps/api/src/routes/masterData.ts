@@ -1,4 +1,5 @@
 import { Router } from "express";
+import PDFDocument from "pdfkit";
 import { Prisma, Role } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
@@ -59,6 +60,31 @@ router.get("/export.xlsx", requireRoles(...writeRoles, Role.ACCOUNTANT, Role.PAY
   const records = await prisma.masterData.findMany({ where: { archivedAt: null, ...(type ? { type } : {}) }, orderBy: [{ type: "asc" }, { code: "asc" }] });
   await audit(req, "EXPORT", "MasterData", undefined, { format: "XLSX", type, count: records.length });
   await xlsxFile(res, "master-data-export.xlsx", headers, records.map((record) => [record.type, record.code, record.name, record.nameArabic ?? "", record.active]), "Master Data");
+});
+
+router.get("/export.pdf", requireRoles(...writeRoles, Role.ACCOUNTANT, Role.PAYROLL_OFFICER, Role.FINANCE, Role.AUDITOR), async (req, res) => {
+  const type = typeof req.query.type === "string" ? req.query.type : undefined;
+  const records = await prisma.masterData.findMany({ where: { archivedAt: null, ...(type ? { type } : {}) }, orderBy: [{ type: "asc" }, { code: "asc" }] });
+  await audit(req, "EXPORT", "MasterData", undefined, { format: "PDF", type, count: records.length });
+  const doc = new PDFDocument({ size: "A4", margin: 36 });
+  res.header("Content-Type", "application/pdf");
+  res.attachment(`${type ? type.toLowerCase() : "master-data"}-export.pdf`);
+  doc.pipe(res);
+  doc.fontSize(16).text(type ? `${type.replace(/_/g, " ")} Master` : "Master Data Export");
+  doc.moveDown();
+  records.forEach((record) => {
+    doc.fontSize(9).text(`${record.type} | ${record.code} | ${record.name} | ${record.nameArabic ?? "-"} | ${record.active ? "ACTIVE" : "INACTIVE"}`);
+  });
+  doc.end();
+});
+
+router.get("/print", requireRoles(...writeRoles, Role.ACCOUNTANT, Role.PAYROLL_OFFICER, Role.FINANCE, Role.AUDITOR), async (req, res) => {
+  const type = typeof req.query.type === "string" ? req.query.type : undefined;
+  const records = await prisma.masterData.findMany({ where: { archivedAt: null, ...(type ? { type } : {}) }, orderBy: [{ type: "asc" }, { code: "asc" }] });
+  await audit(req, "PRINT", "MasterData", undefined, { type, count: records.length });
+  const rows = records.map((record) => `<tr><td>${record.type}</td><td>${record.code}</td><td>${record.name}</td><td>${record.nameArabic ?? ""}</td><td>${record.active ? "ACTIVE" : "INACTIVE"}</td></tr>`).join("");
+  res.header("Content-Type", "text/html");
+  res.send(`<!doctype html><html><head><title>${type ?? "Master Data"} Print</title><style>body{font-family:Arial;margin:24px;font-size:12px}table{width:100%;border-collapse:collapse}td,th{border:1px solid #d1d5db;padding:6px;text-align:left}h1{font-size:18px}@media print{button{display:none}}</style></head><body><button onclick="window.print()">Print</button><h1>${type ? type.replace(/_/g, " ") : "Master Data"}</h1><table><thead><tr><th>Type</th><th>Code</th><th>Name</th><th>Arabic</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></body></html>`);
 });
 
 router.post("/import", requireRoles(...writeRoles), async (req, res, next) => {

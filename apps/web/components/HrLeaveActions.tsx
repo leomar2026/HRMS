@@ -31,3 +31,69 @@ export function HrLeaveDecisionForm({ leaveId }: { leaveId: string }) {
     </div>
   );
 }
+
+type LeaveEdit = {
+  id: string;
+  type: string;
+  startDate: string;
+  endDate: string;
+  days: number;
+  status: string;
+  workflowStage?: string;
+  comments?: string;
+};
+
+export function AdminLeaveEditForm({ leave }: { leave: LeaveEdit }) {
+  const router = useRouter();
+  const [message, setMessage] = useState("");
+
+  async function submit(formData: FormData) {
+    const changeReason = String(formData.get("changeReason") ?? "").trim();
+    if (!changeReason) {
+      setMessage("Reason is required.");
+      return;
+    }
+    const response = await fetch(`/api/backend/leaves/${leave.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        type: formData.get("type"),
+        startDate: formData.get("startDate"),
+        endDate: formData.get("endDate"),
+        days: formData.get("days"),
+        status: formData.get("status"),
+        comments: formData.get("comments"),
+        changeReason
+      })
+    });
+    const data = await response.json().catch(() => ({}));
+    setMessage(response.ok ? "Leave updated." : data.message ?? "Update failed.");
+    router.refresh();
+  }
+
+  return (
+    <form action={submit} className="inline-edit-form">
+      <select name="type" defaultValue={leave.type}>
+        <option value="ANNUAL">ANNUAL</option>
+        <option value="SICK">SICK</option>
+        <option value="EMERGENCY">EMERGENCY</option>
+        <option value="UNPAID">UNPAID</option>
+        <option value="CUSTOM">CUSTOM</option>
+      </select>
+      <input name="startDate" type="date" defaultValue={new Date(leave.startDate).toISOString().slice(0, 10)} />
+      <input name="endDate" type="date" defaultValue={new Date(leave.endDate).toISOString().slice(0, 10)} />
+      <input name="days" type="number" min="1" defaultValue={leave.days} />
+      <select name="status" defaultValue={leave.status}>
+        <option value="PENDING">PENDING</option>
+        <option value="APPROVED">APPROVED</option>
+        <option value="REJECTED">REJECTED</option>
+        <option value="RETURNED_FOR_CORRECTION">RETURNED_FOR_CORRECTION</option>
+        <option value="CANCELLED">CANCELLED</option>
+      </select>
+      <input name="comments" defaultValue={leave.comments ?? ""} placeholder="Comments" />
+      <input name="changeReason" placeholder="Required reason" required />
+      <button className="button secondary" type="submit">Edit</button>
+      {message ? <span className={message.includes("failed") || message.includes("required") ? "status danger" : "status"}>{message}</span> : null}
+    </form>
+  );
+}

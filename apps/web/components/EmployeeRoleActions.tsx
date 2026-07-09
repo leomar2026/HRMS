@@ -19,7 +19,7 @@ const roles = [
   "SUPER_ADMIN"
 ];
 
-export function EmployeeRoleForm({ employeeId, currentRole }: { employeeId: string; currentRole?: string }) {
+export function EmployeeRoleForm({ employeeId, currentRole, currentPortalStatus }: { employeeId: string; currentRole?: string; currentPortalStatus?: string }) {
   const router = useRouter();
   const [message, setMessage] = useState("");
 
@@ -32,23 +32,48 @@ export function EmployeeRoleForm({ employeeId, currentRole }: { employeeId: stri
         portalStatus: formData.get("portalStatus")
       })
     });
-    setMessage(response.ok ? "Role saved." : "Role save failed.");
+    const data = await response.json().catch(() => null);
+    setMessage(response.ok ? "Role saved." : data?.message ?? "Role save failed.");
     router.refresh();
   }
 
   return (
-    <form action={save} className="inline-form">
+    <form action={save} className="employee-role-inline">
       <select name="role" defaultValue={currentRole ?? "EMPLOYEE"} aria-label="User role">
         {roles.map((role) => <option key={role} value={role}>{role.replace(/_/g, " ")}</option>)}
       </select>
-      <select name="portalStatus" defaultValue="ACTIVE" aria-label="Portal status">
+      <select name="portalStatus" defaultValue={currentPortalStatus ?? "PENDING_FIRST_LOGIN"} aria-label="Portal status">
         <option value="ACTIVE">Active</option>
         <option value="PENDING_FIRST_LOGIN">First Login</option>
         <option value="PASSWORD_RESET_REQUIRED">Reset Required</option>
         <option value="DISABLED">Disabled</option>
       </select>
-      <button className="icon-button" type="submit" aria-label="Save employee role"><Save size={16} /></button>
+      <button className="button compact-save" type="submit" aria-label="Save employee role"><Save size={14} /> Save</button>
       {message ? <span className="status">{message}</span> : null}
     </form>
+  );
+}
+
+export function ProvisionMissingPortalUsersButton() {
+  const router = useRouter();
+  const [message, setMessage] = useState("");
+
+  async function provision() {
+    setMessage("Creating accounts...");
+    const response = await fetch("/api/backend/employees/portal-users/provision-missing", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ role: "EMPLOYEE", portalStatus: "PENDING_FIRST_LOGIN" })
+    });
+    const data = await response.json().catch(() => null);
+    setMessage(response.ok ? data?.message ?? "Portal accounts created." : data?.message ?? "Unable to create portal accounts.");
+    router.refresh();
+  }
+
+  return (
+    <div className="actions">
+      <button className="button secondary" type="button" onClick={provision}>Create Missing Employee Portal Accounts</button>
+      {message ? <span className={message.includes("Unable") ? "status danger" : "status"}>{message}</span> : null}
+    </div>
   );
 }

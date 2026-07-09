@@ -1,4 +1,5 @@
 import { ContactForm } from "@/components/EmployeeActions";
+import { ProfilePhotoUploader } from "@/components/ProfilePhoto";
 import { apiFetch } from "@/lib/api";
 
 type Employee = {
@@ -10,6 +11,9 @@ type Employee = {
   emergencyContact?: string;
   address?: string;
   jobTitle: string;
+  photoUrl?: string;
+  profilePhotoPath?: string;
+  profilePhotoStatus?: string;
   department: { name: string };
 };
 
@@ -25,6 +29,7 @@ export default async function EmployeeProfilePage() {
         </div>
       </div>
       <section className="grid cols-3">
+        <div className="panel"><ProfilePhotoUploader employee={employee} endpoint="/api/backend/employee/me/profile-photo" /></div>
         <div className="panel"><span className="muted">Employee ID</span><h2>{employee.employeeCode}</h2></div>
         <div className="panel"><span className="muted">Name</span><h2>{employee.firstName} {employee.lastName}</h2></div>
         <div className="panel"><span className="muted">Role</span><h2>{employee.jobTitle}</h2></div>

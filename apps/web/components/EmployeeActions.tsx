@@ -4,12 +4,25 @@ import { Send, Save } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { AutoSaveDraft, SaveButtonGroup } from "./SaveControls";
+import { AttachmentManager } from "./AttachmentManager";
 
 type Contact = {
   email: string;
   phone?: string;
   emergencyContact?: string;
   address?: string;
+};
+
+type RelieverOption = {
+  id: string;
+  employeeCode: string;
+  firstName: string;
+  lastName: string;
+  jobTitle: string;
+  branch?: string;
+  location?: string;
+  department: { name: string };
+  manager?: { firstName: string; lastName: string } | null;
 };
 
 export function ContactForm({ employee }: { employee: Contact }) {
@@ -68,9 +81,10 @@ export function ContactForm({ employee }: { employee: Contact }) {
   );
 }
 
-export function LeaveRequestForm() {
+export function LeaveRequestForm({ relievers = [] }: { relievers?: RelieverOption[] }) {
   const router = useRouter();
   const [message, setMessage] = useState("");
+  const [leaveType, setLeaveType] = useState("ANNUAL");
 
   async function submit(formData: FormData) {
     const intent = formData.get("intent");
@@ -95,6 +109,24 @@ export function LeaveRequestForm() {
         leaveAddress: formData.get("leaveAddress"),
         emergencyContact: formData.get("emergencyContact"),
         attachmentName: formData.get("attachmentName")
+        ,
+        destinationCountry: formData.get("destinationCountry"),
+        destinationCity: formData.get("destinationCity"),
+        mobileWhileOnLeave: formData.get("mobileWhileOnLeave"),
+        personalEmailWhileOnLeave: formData.get("personalEmailWhileOnLeave"),
+        emergencyContactName: formData.get("emergencyContactName"),
+        emergencyContactNumber: formData.get("emergencyContactNumber"),
+        emergencyContactRelationship: formData.get("emergencyContactRelationship"),
+        lastWorkingDay: formData.get("lastWorkingDay"),
+        returnToWorkDate: formData.get("returnToWorkDate"),
+        relieverId: formData.get("relieverId"),
+        handoverRequired: formData.get("handoverRequired") === "on",
+        handoverDetails: formData.get("handoverDetails"),
+        handoverAttachment: formData.get("handoverAttachment"),
+        annualVacationRemarks: formData.get("annualVacationRemarks"),
+        attachments: [
+          { type: formData.get("attachmentType") || "Vacation supporting document", name: formData.get("attachmentName") || formData.get("handoverAttachment") || "" }
+        ].filter((attachment) => attachment.name)
       })
     });
 
@@ -108,7 +140,7 @@ export function LeaveRequestForm() {
       <div className="form-grid">
         <label className="field">
           <span>Leave type</span>
-          <select name="type" defaultValue="ANNUAL">
+          <select name="type" value={leaveType} onChange={(event) => setLeaveType(event.target.value)}>
             <option value="ANNUAL">Annual leave</option>
             <option value="SICK">Sick leave</option>
             <option value="EMERGENCY">Emergency leave</option>
@@ -138,11 +170,38 @@ export function LeaveRequestForm() {
           <span>Emergency contact</span>
           <input name="emergencyContact" />
         </label>
-        <label className="field">
-          <span>Attachment reference</span>
-          <input name="attachmentName" placeholder="medical-certificate.pdf" />
+        <label className="field attachment-field">
+          <span>Attachment</span>
+          <AttachmentManager relatedModule="LeaveRequest" attachmentType="Leave supporting document" required={leaveType === "ANNUAL"} compact />
         </label>
       </div>
+      {leaveType === "ANNUAL" ? (
+        <>
+          <div className="form-grid">
+            <label className="field"><span>Last working day</span><input name="lastWorkingDay" type="date" required /></label>
+            <label className="field"><span>Return to work date</span><input name="returnToWorkDate" type="date" required /></label>
+            <label className="field"><span>Vacation destination country</span><input name="destinationCountry" required /></label>
+            <label className="field"><span>Vacation destination city</span><input name="destinationCity" required /></label>
+            <label className="field"><span>Mobile while on leave</span><input name="mobileWhileOnLeave" required /></label>
+            <label className="field"><span>Personal email while on leave</span><input name="personalEmailWhileOnLeave" type="email" /></label>
+            <label className="field"><span>Emergency contact name</span><input name="emergencyContactName" required /></label>
+            <label className="field"><span>Emergency contact number</span><input name="emergencyContactNumber" required /></label>
+            <label className="field"><span>Emergency relationship</span><input name="emergencyContactRelationship" required /></label>
+            <label className="field">
+              <span>Reliever</span>
+              <select name="relieverId" required>
+                <option value="">Select active employee</option>
+                {relievers.map((reliever) => <option key={reliever.id} value={reliever.id}>{reliever.employeeCode} - {reliever.firstName} {reliever.lastName} / {reliever.department.name} / {reliever.jobTitle}</option>)}
+              </select>
+            </label>
+            <label className="field"><span>Attachment type</span><select name="attachmentType"><option>Vacation request supporting document</option><option>Travel document</option><option>Handover document</option><option>Other supporting attachment</option></select></label>
+            <label className="field attachment-field"><span>Handover attachment</span><AttachmentManager relatedModule="LeaveHandover" attachmentType="Handover document" fieldName="handoverAttachment" compact /></label>
+            <label className="status"><input name="handoverRequired" type="checkbox" /> Handover required</label>
+          </div>
+          <label className="field"><span>Handover details</span><textarea name="handoverDetails" required /></label>
+          <label className="field"><span>Annual vacation remarks</span><textarea name="annualVacationRemarks" /></label>
+        </>
+      ) : null}
       <label className="field">
         <span>Leave address / destination</span>
         <input name="leaveAddress" />

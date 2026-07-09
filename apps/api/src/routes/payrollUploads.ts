@@ -5,7 +5,7 @@ import { prisma } from "../lib/prisma.js";
 import { requireAuth } from "../middleware/auth.js";
 import { requireRoles } from "../middleware/rbac.js";
 import { audit } from "../utils/audit.js";
-import { csvTemplate, numberValue, rowsFromUpload } from "../utils/uploadParsers.js";
+import { csvFile, csvTemplate, numberValue, rowsFromUpload, xlsxFile, xlsxTemplate } from "../utils/uploadParsers.js";
 import { renderPayslipPdf, type PayslipComponent, type PayslipInput } from "../utils/payslipRenderer.js";
 import { companyPrintHeader, getCurrentCompanyProfile, payslipCompanyFromProfile } from "../utils/companyProfile.js";
 
@@ -30,7 +30,6 @@ const headers = [
   "Unpaid Leave Deduction",
   "Loan Deduction",
   "Advance Deduction",
-  "GOSI Deduction",
   "Other Deduction",
   "Gross Salary",
   "Total Deduction",
@@ -61,6 +60,12 @@ const decisionSchema = z.object({
 
 router.use(requireAuth, requireRoles(...uploadRoles));
 
+function uploadedValuesWithoutGosi<T extends { gosiDeduction: unknown; netSalary: unknown }>(item: T) {
+  const previousGosi = Number(item.gosiDeduction ?? 0);
+  const adjustedNet = Number(item.netSalary ?? 0) + previousGosi;
+  return { gosiDeduction: "0.00", netSalary: adjustedNet.toFixed(2) };
+}
+
 function uploadedPayslipInput(item: Awaited<ReturnType<typeof prisma.payrollUploadItem.findUnique>> & { batch: { month: number; year: number; company: string; branch: string | null; paymentDate: Date; status: string; id: string }; employee: { firstName: string; lastName: string; employeeCode: string; nationalId: string; gosiNumber: string | null; branch: string | null; bankName: string | null; iban: string | null; joiningDate: Date; status: string; department?: { name: string } | null } }, company: PayslipInput["company"], printedBy?: string): PayslipInput {
   const earnings: PayslipComponent[] = [
     { name: "Basic Salary", value: item.basicSalary },
@@ -76,13 +81,13 @@ function uploadedPayslipInput(item: Awaited<ReturnType<typeof prisma.payrollUplo
   if (Math.abs(otherEarnings) > 0.01) earnings.push({ name: "Other Earnings", value: otherEarnings.toFixed(2) });
 
   const deductions = [
-    { name: "GOSI Employee Contribution", value: item.gosiDeduction },
     { name: "Loan Deduction", value: item.loanDeduction },
     { name: "Salary Advance Deduction", value: item.advanceDeduction },
     { name: "Unpaid Leave Deduction", value: item.unpaidLeaveDeduction },
     { name: "Absence / Leave Deduction", value: item.leaveDeduction },
     { name: "Other Deduction", value: item.otherDeduction }
   ].filter((component) => Number(component.value) !== 0);
+  const adjustedValues = uploadedValuesWithoutGosi(item);
 
   return {
     company,
@@ -114,7 +119,7 @@ function uploadedPayslipInput(item: Awaited<ReturnType<typeof prisma.payrollUplo
     attendance: { payrollDays: 30, presentDays: 30, absentDays: 0, weeklyOffDays: 0, publicHolidays: 0, normalOvertimeHours: 0, holidayOvertimeHours: 0 },
     earnings,
     deductions,
-    netSalary: item.netSalary,
+    netSalary: adjustedValues.netSalary,
     remarks: item.remarks ?? undefined
   };
 }
@@ -123,6 +128,10 @@ router.get("/template.csv", (_req, res) => {
   res.header("Content-Type", "text/csv");
   res.attachment("payroll-upload-template.csv");
   res.send(csvTemplate(headers));
+});
+
+router.get("/template.xlsx", async (_req, res) => {
+  await xlsxTemplate(res, "payroll-upload-template.xlsx", headers, "Payroll Upload");
 });
 
 async function validateRows(rows: Awaited<ReturnType<typeof rowsFromUpload>>) {
@@ -216,11 +225,11 @@ router.post("/", async (req, res, next) => {
           unpaidLeaveDeduction: numberValue(row["Unpaid Leave Deduction"]),
           loanDeduction: numberValue(row["Loan Deduction"]),
           advanceDeduction: numberValue(row["Advance Deduction"]),
-          gosiDeduction: numberValue(row["GOSI Deduction"]),
+          gosiDeduction: 0,
           otherDeduction: numberValue(row["Other Deduction"]),
           grossSalary: numberValue(row["Gross Salary"]),
-          totalDeduction: numberValue(row["Total Deduction"]),
-          netSalary: numberValue(row["Net Salary"]),
+          totalDeduction: Math.max(0, numberValue(row["Total Deduction"]) - numberValue(row["GOSI Deduction"])),
+          netSalary: numberValue(row["Net Salary"]) + numberValue(row["GOSI Deduction"]),
           bankName: row["Bank Name"],
           iban: row.IBAN,
           paymentDate: new Date(row["Payment Date"]),
@@ -287,10 +296,23 @@ router.get("/:id/export.csv", async (req, res, next) => {
   try {
     const batch = await prisma.payrollUploadBatch.findUnique({ where: { id: String(req.params.id) }, include: { items: true } });
     if (!batch) return res.status(404).json({ message: "Payroll batch not found" });
-    const rows = batch.items.map((item) => [item.employeeCode, item.employeeName, item.grossSalary, item.totalDeduction, item.netSalary, item.bankName ?? "", item.iban ?? ""].join(","));
-    res.header("Content-Type", "text/csv");
-    res.attachment(`payroll-upload-${batch.year}-${batch.month}.csv`);
-    res.send(["Employee ID,Employee Name,Gross Salary,Total Deduction,Net Salary,Bank Name,IBAN", ...rows].join("\n"));
+    const exportHeaders = ["Employee ID", "Employee Name", "Gross Salary", "Total Deduction", "Net Salary", "Bank Name", "IBAN"];
+    const rows = batch.items.map((item) => [item.employeeCode, item.employeeName, item.grossSalary, item.totalDeduction, item.netSalary, item.bankName ?? "", item.iban ?? ""]);
+    await audit(req, "EXPORT", "PayrollUploadBatch", batch.id, { format: "CSV", count: batch.items.length });
+    csvFile(res, `payroll-upload-${batch.year}-${batch.month}.csv`, exportHeaders, rows);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get("/:id/export.xlsx", async (req, res, next) => {
+  try {
+    const batch = await prisma.payrollUploadBatch.findUnique({ where: { id: String(req.params.id) }, include: { items: true } });
+    if (!batch) return res.status(404).json({ message: "Payroll batch not found" });
+    const exportHeaders = ["Employee ID", "Employee Name", "Gross Salary", "Total Deduction", "Net Salary", "Bank Name", "IBAN"];
+    const rows = batch.items.map((item) => [item.employeeCode, item.employeeName, item.grossSalary, item.totalDeduction, item.netSalary, item.bankName ?? "", item.iban ?? ""]);
+    await audit(req, "EXPORT", "PayrollUploadBatch", batch.id, { format: "XLSX", count: batch.items.length });
+    await xlsxFile(res, `payroll-upload-${batch.year}-${batch.month}.xlsx`, exportHeaders, rows, "Payroll");
   } catch (error) {
     next(error);
   }

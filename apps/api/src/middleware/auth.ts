@@ -45,6 +45,13 @@ export async function requireAuth(req: Request, _res: Response, next: NextFuncti
       employeeId: payload.employeeId,
       sessionId: payload.sessionId
     };
+    const originalUrl = req.originalUrl.split("?")[0];
+    if (!env.HRMS_PREVIEW_MODE && !["/api/auth/change-password", "/api/auth/logout", "/api/auth/me"].includes(originalUrl) && !originalUrl.startsWith("/api/public")) {
+      const user = await prisma.user.findUnique({ where: { id: payload.sub }, select: { portalStatus: true, firstLoginRequired: true, passwordResetRequired: true, forcePasswordChange: true } });
+      if (user && (user.firstLoginRequired || user.passwordResetRequired || user.forcePasswordChange || ["PENDING_FIRST_LOGIN", "PASSWORD_RESET_REQUIRED"].includes(user.portalStatus))) {
+        return next(new AppError(428, "Password change is required before accessing HRMS"));
+      }
+    }
     return next();
   } catch {
     return next(new AppError(401, "Invalid or expired token"));

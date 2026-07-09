@@ -26,7 +26,12 @@ router.get("/dashboard", async (req, res, next) => {
   try {
     const managerId = requireManagerEmployeeId(req.user?.employeeId);
     const now = new Date();
-    const [directReports, pendingLeaves, onLeave, scheduledLeaves, recentApprovals] = await Promise.all([
+    const todayStart = new Date(now);
+    todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date(todayStart);
+    todayEnd.setDate(todayEnd.getDate() + 1);
+    const [manager, directReports, pendingLeaves, onLeave, scheduledLeaves, recentApprovals] = await Promise.all([
+      prisma.employee.findUnique({ where: { id: managerId }, include: { department: true } }),
       prisma.employee.findMany({ where: { managerId }, include: { department: true }, orderBy: { employeeCode: "asc" } }),
       prisma.leaveRequest.findMany({
         where: { managerId, workflowStage: "PENDING_MANAGER_APPROVAL", status: ApprovalStatus.PENDING },
@@ -37,13 +42,47 @@ router.get("/dashboard", async (req, res, next) => {
       prisma.leaveRequest.count({ where: { managerId, workflowStage: "FINAL_APPROVED", startDate: { gt: now } } }),
       prisma.approvalHistory.findMany({ where: { actedBy: req.user?.id, module: "Leave" }, orderBy: { createdAt: "desc" }, take: 10 })
     ]);
+    const directReportIds = directReports.map((employee) => employee.id);
+    const [presentToday, pendingLoans, pendingBusinessTrips, pendingPettyCash, pendingResignations, teamAttendanceToday] = directReportIds.length
+      ? await Promise.all([
+          prisma.attendance.count({ where: { employeeId: { in: directReportIds }, status: "PRESENT", workDate: { gte: todayStart, lt: todayEnd } } }),
+          prisma.employeeLoanRequest.count({ where: { employeeId: { in: directReportIds }, status: { in: ["PENDING_MANAGER", "PENDING_HR_MANAGER", "PENDING_FINANCE", "PENDING_ADMIN"] as never[] } } }),
+          prisma.businessTripRequest.count({ where: { employeeId: { in: directReportIds }, status: { in: ["PENDING_MANAGER", "PENDING_HR_MANAGER", "PENDING_FINANCE", "PENDING_ADMIN"] as never[] } } }),
+          prisma.pettyCashRequest.count({ where: { employeeId: { in: directReportIds }, status: { in: ["PENDING_MANAGER", "PENDING_HR_MANAGER", "PENDING_FINANCE", "PENDING_ADMIN"] as never[] } } }),
+          prisma.resignationRequest.count({ where: { employeeId: { in: directReportIds }, status: { in: ["PENDING_MANAGER", "PENDING_HR_MANAGER", "PENDING_FINANCE", "PENDING_ADMIN"] as never[] } } }),
+          prisma.attendance.findMany({ where: { employeeId: { in: directReportIds }, workDate: { gte: todayStart, lt: todayEnd } }, include: { employee: { include: { department: true } } }, orderBy: { checkIn: "asc" } })
+        ])
+      : [0, 0, 0, 0, 0, []];
+    const pendingApprovals = pendingLeaves.map((leave) => ({
+      id: leave.id,
+      requestType: "Leave",
+      requestNumber: leave.requestNumber,
+      employee: leave.employee,
+      department: leave.employee.department,
+      submittedDate: leave.createdAt,
+      currentStatus: leave.workflowStage,
+      agingDays: Math.max(0, Math.floor((now.getTime() - leave.createdAt.getTime()) / 86400000)),
+      actionUrl: "/manager/leave-approvals"
+    }));
 
     res.json({
+      manager,
       directReportsCount: directReports.length,
       directReports,
       pendingLeaves,
+      pendingApprovals,
       employeesCurrentlyOnLeave: onLeave,
       employeesScheduledForLeave: scheduledLeaves,
+      employeesPresentToday: presentToday,
+      employeesOnLeaveToday: onLeave,
+      pendingLoans,
+      pendingBusinessTrips,
+      pendingPettyCash,
+      pendingResignations,
+      pendingAttendanceAdjustments: 0,
+      upcomingTeamLeaves: scheduledLeaves,
+      teamDocumentExpiryAlerts: directReports.filter((employee) => employee.medicalInsuranceExpiryDate || employee.contractExpiryDate).length,
+      teamAttendanceToday,
       recentApprovals
     });
   } catch (error) {
