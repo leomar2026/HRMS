@@ -183,6 +183,8 @@ function normalizePreviewEmployee(record: Record<string, unknown>) {
     otherAllowance: String(current.otherAllowance ?? "0.00"),
     bankName: String(current.bankName ?? "Al Rajhi Bank"),
     iban: String(current.iban ?? ""),
+    biometricId: String(current.biometricId ?? ""),
+    deviceUserId: String(current.deviceUserId ?? current.employeeCode ?? ""),
     photoUrl: String(current.photoUrl ?? current.profilePhotoPath ?? ""),
     profilePhotoPath: String(current.profilePhotoPath ?? current.photoUrl ?? ""),
     profilePhotoFileName: current.profilePhotoFileName,
@@ -779,6 +781,10 @@ const makeBiometricDevice = (id: string, deviceCode: string, deviceName: string,
   connectionStatus: "NOT_TESTED",
   syncIntervalMinutes: 15,
   remarks: "Configure IP/port, ADMS, or BioTime settings before live sync.",
+  mobileEnabled: id === "preview-zkteco-ruh",
+  siteLatitude: id === "preview-zkteco-ruh" ? 24.7136 : null,
+  siteLongitude: id === "preview-zkteco-ruh" ? 46.6753 : null,
+  siteRadiusMeters: id === "preview-zkteco-ruh" ? 250 : 150,
   _count: { logs: id === "preview-zkteco-ruh" ? 3 : 0, mappings: id === "preview-zkteco-ruh" ? 2 : 0 }
 });
 const biometricDevices = [
@@ -792,13 +798,23 @@ const biometricMappings = [
   { id: "preview-map-1", biometricId: "BIO-002", deviceUserId: "EMP-002", cardNumber: "1002", syncStatus: "SYNCED", lastPunchAt: "2026-06-01T05:02:00.000Z", active: true, employee: { ...selfServiceEmployee, department: selfServiceEmployee.department }, device: biometricDevice },
   { id: "preview-map-2", biometricId: "BIO-003", deviceUserId: "EMP-003", cardNumber: "1003", syncStatus: "SYNCED", lastPunchAt: "2026-06-01T05:20:00.000Z", active: true, employee: { id: "preview-employee-3", employeeCode: "EMP-003", firstName: "Team", lastName: "Member", department: { id: "preview-dept-7", name: "Sales", code: "SAL" } }, device: biometricDevice }
 ];
-const biometricRawLogs = [
+const biometricRawLogs: Array<Record<string, any>> = [
   { id: "preview-raw-1", deviceId: biometricDevice.id, device: biometricDevice, deviceName: biometricDevice.deviceName, deviceUserId: "EMP-002", employee: { ...selfServiceEmployee, department: selfServiceEmployee.department }, employeeName: "Employee User", punchDate: "2026-06-01T00:00:00.000Z", punchTime: "2026-06-01T05:02:00.000Z", punchType: "CHECK_IN", verificationType: "Fingerprint", workCode: "", deviceSerialNumber: biometricDevice.serialNumber, deviceIp: biometricDevice.ipAddress, syncAt: new Date().toISOString(), rawLogReference: "preview-raw-1", processingStatus: "PROCESSED" },
   { id: "preview-raw-2", deviceId: biometricDevice.id, device: biometricDevice, deviceName: biometricDevice.deviceName, deviceUserId: "EMP-999", employee: null, employeeName: null, punchDate: "2026-06-01T00:00:00.000Z", punchTime: "2026-06-01T05:10:00.000Z", punchType: "UNKNOWN", verificationType: "Face", workCode: "", deviceSerialNumber: biometricDevice.serialNumber, deviceIp: biometricDevice.ipAddress, syncAt: new Date().toISOString(), rawLogReference: "preview-raw-2", processingStatus: "UNMATCHED", errorMessage: "No employee mapping found for biometric device user ID." }
 ];
-const biometricAttendanceRecords = [
+const biometricAttendanceRecords: Array<Record<string, any>> = [
   { id: "preview-att-record-1", employee: { ...selfServiceEmployee, department: selfServiceEmployee.department }, workDate: "2026-06-01T00:00:00.000Z", shift: "Day Shift", firstIn: "2026-06-01T05:02:00.000Z", lastOut: "2026-06-01T14:15:00.000Z", workingHours: "9.22", lateMinutes: 2, earlyOutMinutes: 0, overtimeHours: "0.25", attendanceStatus: "LATE", device: biometricDevice, source: "BIOMETRIC", approvalStatus: "DRAFT" }
 ];
+function previewDistanceMeters(from: { latitude: number; longitude: number }, to: { latitude: number; longitude: number }) {
+  const earthRadius = 6371000;
+  const toRadians = (value: number) => value * Math.PI / 180;
+  const dLat = toRadians(to.latitude - from.latitude);
+  const dLon = toRadians(to.longitude - from.longitude);
+  const lat1 = toRadians(from.latitude);
+  const lat2 = toRadians(to.latitude);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+  return 2 * earthRadius * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
 previewRouter.get("/biometrics/devices", (_req, res) => res.json(biometricDevices));
 previewRouter.post("/biometrics/devices", (req, res) => res.status(201).json({ id: `preview-device-${Date.now()}`, connectionStatus: "NOT_TESTED", lastSyncAt: null, _count: { logs: 0, mappings: 0 }, ...req.body }));
 previewRouter.patch("/biometrics/devices/:id", (req, res) => res.json({ ...biometricDevice, id: req.params.id, ...req.body }));
@@ -806,6 +822,83 @@ previewRouter.delete("/biometrics/devices/:id", (req, res) => res.json({ ...biom
 previewRouter.post("/biometrics/devices/:id/test-connection", (req, res) => res.json({ ok: true, message: "Preview connection test completed. Configure a real device before production sync.", device: { ...biometricDevice, id: req.params.id } }));
 previewRouter.post("/biometrics/devices/:id/sync", (req, res) => res.status(400).json({ id: "preview-sync-failed", deviceId: req.params.id, status: "FAILED", errorMessage: "Preview mode does not connect to a live biometric machine." }));
 previewRouter.post("/biometrics/import", (_req, res) => res.status(201).json({ id: "preview-import-1", status: "COMPLETED", pulledCount: 2, processedCount: 1, unmatchedCount: 1, duplicateCount: 0 }));
+previewRouter.get("/biometrics/mobile-config", (_req, res) => res.json({
+  timezone: "Asia/Riyadh",
+  sites: biometricDevices.filter((device) => device.mobileEnabled).map((device) => ({
+    id: device.id,
+    name: device.deviceName,
+    branch: device.branch,
+    location: device.deviceLocation,
+    timezone: device.timezone,
+    latitude: device.siteLatitude,
+    longitude: device.siteLongitude,
+    radiusMeters: device.siteRadiusMeters
+  }))
+}));
+previewRouter.post("/biometrics/mobile-punch", (req, res) => {
+  const device = biometricDevices.find((item) => item.mobileEnabled && item.siteLatitude && item.siteLongitude) ?? biometricDevice;
+  const latitude = Number(req.body.latitude);
+  const longitude = Number(req.body.longitude);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return res.status(400).json({ message: "GPS location is required." });
+  const distance = previewDistanceMeters({ latitude, longitude }, { latitude: Number(device.siteLatitude), longitude: Number(device.siteLongitude) });
+  const allowed = Number(device.siteRadiusMeters ?? 150) + Number(req.body.accuracyMeters ?? 0);
+  if (distance > allowed) return res.status(403).json({ message: `GPS location is outside the allowed site radius. Nearest site is ${Math.round(distance)}m away.`, nearestSite: device.deviceName, distanceMeters: Math.round(distance), allowedRadiusMeters: device.siteRadiusMeters });
+  const employeeIdentifier = String(req.body.employeeIdentifier ?? "");
+  const previewEmployeeRecord = previewEmployeeRecords().find((item) => [
+    item.employeeCode,
+    item.email,
+    item.companyEmail,
+    item.biometricId,
+    item.deviceUserId,
+    item.nationalId
+  ].filter(Boolean).map(String).includes(employeeIdentifier)) ?? selfServiceEmployee;
+  const previewEmployee = normalizePreviewEmployee(previewEmployeeRecord);
+  const punchType = req.body.punchType === "CHECK_OUT" ? "CHECK_OUT" : "CHECK_IN";
+  const punchTime = new Date(req.body.clientTime ?? Date.now()).toISOString();
+  const log = {
+    id: `preview-mobile-log-${Date.now()}`,
+    deviceId: device.id,
+    device,
+    deviceName: device.deviceName,
+    deviceUserId: previewEmployee.deviceUserId ?? previewEmployee.biometricId ?? previewEmployee.employeeCode,
+    employee: { ...previewEmployee, department: previewEmployee.department },
+    employeeName: `${previewEmployee.firstName} ${previewEmployee.lastName}`,
+    punchDate: punchTime,
+    punchTime,
+    punchType,
+    verificationType: req.body.verificationMethod ?? "EMPLOYEE_ID",
+    workCode: "",
+    deviceSerialNumber: device.serialNumber,
+    deviceIp: device.ipAddress,
+    syncAt: new Date().toISOString(),
+    rawLogReference: `preview-mobile-${Date.now()}`,
+    processingStatus: "PROCESSED",
+    errorMessage: undefined,
+    rawPayload: { latitude, longitude, accuracyMeters: req.body.accuracyMeters, distanceMeters: Math.round(distance), timezone: req.body.timezone ?? "Asia/Riyadh" }
+  };
+  biometricRawLogs.unshift(log);
+  const existing = biometricAttendanceRecords.find((record) => record.employee.employeeCode === previewEmployee.employeeCode && String(record.workDate).slice(0, 10) === punchTime.slice(0, 10));
+  const record = existing ?? {
+    id: `preview-mobile-attendance-${Date.now()}`,
+    employee: { ...previewEmployee, department: previewEmployee.department },
+    workDate: punchTime,
+    shift: "Mobile Shift",
+    firstIn: null,
+    lastOut: null,
+    workingHours: "0.00",
+    lateMinutes: 0,
+    earlyOutMinutes: 0,
+    overtimeHours: "0.00",
+    attendanceStatus: "INCOMPLETE_ATTENDANCE",
+    device,
+    source: "MOBILE",
+    approvalStatus: "DRAFT"
+  };
+  if (punchType === "CHECK_IN" && !record.firstIn) record.firstIn = punchTime;
+  if (punchType === "CHECK_OUT") record.lastOut = punchTime;
+  if (!existing) biometricAttendanceRecords.unshift(record);
+  res.status(201).json({ ok: true, message: `${punchType === "CHECK_IN" ? "Time in" : "Time out"} recorded.`, employeeCode: previewEmployee.employeeCode, employeeName: `${previewEmployee.firstName} ${previewEmployee.lastName}`, siteName: device.deviceName, punchTime, timezone: req.body.timezone ?? "Asia/Riyadh", distanceMeters: Math.round(distance), attendanceRecord: record });
+});
 previewRouter.get("/biometrics/mappings", (_req, res) => res.json(biometricMappings));
 previewRouter.post("/biometrics/mappings", (req, res) => res.status(201).json({ id: `preview-map-${Date.now()}`, syncStatus: "PENDING", active: true, ...req.body }));
 previewRouter.patch("/biometrics/mappings/:id", (req, res) => res.json({ ...biometricMappings[0], id: req.params.id, ...req.body }));

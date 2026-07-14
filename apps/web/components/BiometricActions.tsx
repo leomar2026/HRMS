@@ -16,6 +16,10 @@ type Device = {
   deviceLocation?: string | null;
   branch?: string | null;
   timezone?: string;
+  mobileEnabled?: boolean;
+  siteLatitude?: number | null;
+  siteLongitude?: number | null;
+  siteRadiusMeters?: number | null;
   status?: string;
   syncIntervalMinutes?: number;
   remarks?: string | null;
@@ -72,6 +76,13 @@ export function BiometricDeviceForm() {
       <input name="deviceLocation" placeholder="Device Location" />
       <input name="branch" placeholder="Branch" />
       <input name="timezone" placeholder="Timezone" defaultValue="Asia/Riyadh" />
+      <input name="siteLatitude" placeholder="Site Latitude" type="number" step="0.000001" />
+      <input name="siteLongitude" placeholder="Site Longitude" type="number" step="0.000001" />
+      <input name="siteRadiusMeters" placeholder="GPS Radius (meters)" type="number" defaultValue={150} />
+      <label className="check-row">
+        <input name="mobileEnabled" type="checkbox" />
+        Mobile attendance enabled
+      </label>
       <input name="syncIntervalMinutes" placeholder="Sync Interval" type="number" defaultValue={15} />
       <select name="status" defaultValue="ACTIVE"><option>ACTIVE</option><option>INACTIVE</option></select>
       <textarea name="remarks" placeholder="Remarks" />
@@ -116,6 +127,14 @@ export function BiometricDeviceEditForm({ device }: { device: Device }) {
           <input name="deviceLocation" placeholder="Device Location" defaultValue={device.deviceLocation ?? ""} />
           <input name="branch" placeholder="Branch" defaultValue={device.branch ?? ""} />
           <input name="timezone" placeholder="Timezone" defaultValue={device.timezone ?? "Asia/Riyadh"} />
+          <input name="siteLatitude" placeholder="Site Latitude" type="number" step="0.000001" defaultValue={device.siteLatitude ?? ""} />
+          <input name="siteLongitude" placeholder="Site Longitude" type="number" step="0.000001" defaultValue={device.siteLongitude ?? ""} />
+          <input name="siteRadiusMeters" placeholder="GPS Radius (meters)" type="number" defaultValue={device.siteRadiusMeters ?? 150} />
+          <input name="mobileEnabled" type="hidden" value="false" />
+          <label className="check-row">
+            <input name="mobileEnabled" type="checkbox" defaultChecked={Boolean(device.mobileEnabled)} />
+            Mobile attendance enabled
+          </label>
           <input name="syncIntervalMinutes" placeholder="Sync Interval" type="number" defaultValue={device.syncIntervalMinutes ?? 15} />
           <select name="status" defaultValue={device.status ?? "ACTIVE"}><option>ACTIVE</option><option>INACTIVE</option></select>
           <textarea name="remarks" placeholder="Remarks" defaultValue={device.remarks ?? ""} />

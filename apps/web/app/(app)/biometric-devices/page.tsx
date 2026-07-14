@@ -15,6 +15,10 @@ type Device = {
   deviceLocation?: string;
   branch?: string;
   timezone: string;
+  mobileEnabled?: boolean;
+  siteLatitude?: number | null;
+  siteLongitude?: number | null;
+  siteRadiusMeters?: number | null;
   status: string;
   lastSyncAt?: string;
   connectionStatus: string;
@@ -33,6 +37,7 @@ export default async function BiometricDevicesPage() {
         count={`${devices.length} records`}
         actions={[
           { label: "Mapping", href: "/biometric-mapping", icon: "columns" },
+          { label: "Mobile Time In", href: "/mobile-attendance", icon: "more" },
           { label: "Attendance Logs", href: "/biometric-logs", icon: "more" },
           { label: "Refresh", href: "/biometric-devices", icon: "refresh" }
         ]}
@@ -43,7 +48,7 @@ export default async function BiometricDevicesPage() {
       <BiometricImportForm devices={devices} />
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Device</th><th>Code</th><th>Brand</th><th>Connection</th><th>IP/Port</th><th>Branch</th><th>Status</th><th>Connection Status</th><th>Last Sync</th><th>Interval</th><th>Logs</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Device</th><th>Code</th><th>Brand</th><th>Connection</th><th>IP/Port</th><th>Branch</th><th>Mobile Site</th><th>Status</th><th>Connection Status</th><th>Last Sync</th><th>Interval</th><th>Logs</th><th>Actions</th></tr></thead>
           <tbody>
             {devices.length ? devices.map((device) => (
               <tr key={device.id}>
@@ -53,6 +58,11 @@ export default async function BiometricDevicesPage() {
                 <td>{device.connectionType}</td>
                 <td>{device.ipAddress ?? "-"}{device.port ? `:${device.port}` : ""}</td>
                 <td>{device.branch ?? "-"}</td>
+                <td>
+                  <span className={device.mobileEnabled ? "status" : "status danger"}>{device.mobileEnabled ? "Enabled" : "Disabled"}</span>
+                  <br /><span className="muted">{device.siteLatitude && device.siteLongitude ? `${device.siteLatitude}, ${device.siteLongitude}` : "No GPS"}</span>
+                  <br /><span className="muted">{device.siteRadiusMeters ?? 150}m / {device.timezone}</span>
+                </td>
                 <td><span className="status">{device.status}</span></td>
                 <td><span className={device.connectionStatus === "FAILED" ? "status danger" : "status"}>{device.connectionStatus}</span></td>
                 <td>{device.lastSyncAt ? new Date(device.lastSyncAt).toLocaleString() : "-"}</td>
@@ -68,7 +78,7 @@ export default async function BiometricDevicesPage() {
                   ]} />
                 </td>
               </tr>
-            )) : <tr><td colSpan={12}>No records found.</td></tr>}
+            )) : <tr><td colSpan={13}>No records found.</td></tr>}
           </tbody>
         </table>
       </div>
