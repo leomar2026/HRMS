@@ -32,7 +32,11 @@ export function LoginForm({ branding }: { branding: PublicBranding }) {
       return;
     }
 
-    router.push(data.redirectTo ?? "/dashboard");
+    const returnTo = params.get("returnTo");
+    const safeReturnTo = returnTo?.startsWith("/") && !returnTo.startsWith("//") ? returnTo : "";
+    const isMobile = window.matchMedia("(max-width: 760px)").matches;
+    const redirectTo = safeReturnTo || (isMobile && data.user?.role === "EMPLOYEE" ? "/employee/mobile-attendance" : data.redirectTo ?? "/dashboard");
+    router.push(redirectTo);
     router.refresh();
   }
 

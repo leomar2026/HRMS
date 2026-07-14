@@ -1,4 +1,4 @@
-import { BiometricConnectionType, BiometricDeviceStatus, BiometricPunchType, Role } from "@prisma/client";
+import { BiometricConnectionType, BiometricDeviceStatus, BiometricPunchType, Prisma, Role } from "@prisma/client";
 import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
@@ -58,7 +58,7 @@ const adjustmentSchema = z.object({
 });
 
 const mobilePunchSchema = z.object({
-  employeeIdentifier: z.string().trim().min(1, "Employee ID is required."),
+  employeeIdentifier: z.string().trim().optional(),
   punchType: z.enum(["CHECK_IN", "CHECK_OUT"]).default("CHECK_IN"),
   verificationMethod: z.enum(["MOBILE_BIOMETRIC", "EMPLOYEE_ID"]).default("EMPLOYEE_ID"),
   latitude: z.coerce.number().min(-90).max(90),
@@ -68,7 +68,7 @@ const mobilePunchSchema = z.object({
   clientTime: z.coerce.date().optional()
 });
 
-function splitDevicePayload(body: z.infer<typeof deviceSchema>) {
+function splitDevicePayload(body: Partial<z.infer<typeof deviceSchema>>) {
   const { mobileEnabled, siteLatitude, siteLongitude, siteRadiusMeters, ...device } = body;
   const mobileSite = {
     mobileEnabled: Boolean(mobileEnabled),
@@ -128,7 +128,7 @@ router.post("/devices", requireRoles(...manageRoles), async (req, res, next) => 
   try {
     const body = deviceSchema.parse(req.body);
     const payload = splitDevicePayload(body);
-    const device = await prisma.biometricDevice.create({ data: { ...payload.device, secureConfig: payload.secureConfig, createdBy: req.user?.id } });
+    const device = await prisma.biometricDevice.create({ data: { ...payload.device, secureConfig: payload.secureConfig, createdBy: req.user?.id } as Prisma.BiometricDeviceUncheckedCreateInput });
     await audit(req, "CREATE", "BiometricDevice", device.id, { deviceCode: device.deviceCode }, undefined, device);
     res.status(201).json(withMobileConfig(device));
   } catch (error) {
@@ -142,9 +142,9 @@ router.patch("/devices/:id", requireRoles(...manageRoles), async (req, res, next
     const body = deviceSchema.partial().parse(req.body);
     const previous = await prisma.biometricDevice.findUnique({ where: { id } });
     const previousConfig = typeof previous?.secureConfig === "object" && previous.secureConfig ? previous.secureConfig as Record<string, unknown> : {};
-    const payload = splitDevicePayload(body as z.infer<typeof deviceSchema>);
+    const payload = splitDevicePayload(body);
     const secureConfig = payload.secureConfig ? { ...previousConfig, ...payload.secureConfig } : undefined;
-    const device = await prisma.biometricDevice.update({ where: { id }, data: { ...payload.device, ...(secureConfig ? { secureConfig } : {}) } });
+    const device = await prisma.biometricDevice.update({ where: { id }, data: { ...payload.device, ...(secureConfig ? { secureConfig } : {}) } as Prisma.BiometricDeviceUncheckedUpdateInput });
     await audit(req, "UPDATE", "BiometricDevice", id, undefined, previous ?? undefined, device);
     res.json(withMobileConfig(device));
   } catch (error) {
@@ -205,21 +205,25 @@ router.post("/mobile-punch", requireRoles(Role.EMPLOYEE, Role.DEPARTMENT_MANAGER
     }
 
     const identifier = body.employeeIdentifier;
-    const employee = await prisma.employee.findFirst({
-      where: {
-        archivedAt: null,
-        OR: [
-          { employeeCode: identifier },
-          { nationalId: identifier },
-          { biometricId: identifier },
-          { deviceUserId: identifier },
-          { email: identifier },
-          { companyEmail: identifier }
-        ]
-      },
-      include: { department: true }
-    });
-    if (!employee) return res.status(404).json({ message: "Employee ID was not found." });
+    const employee = req.user?.employeeId
+      ? await prisma.employee.findUnique({ where: { id: req.user.employeeId }, include: { department: true } })
+      : identifier
+        ? await prisma.employee.findFirst({
+          where: {
+            archivedAt: null,
+            OR: [
+              { employeeCode: identifier },
+              { nationalId: identifier },
+              { biometricId: identifier },
+              { deviceUserId: identifier },
+              { email: identifier },
+              { companyEmail: identifier }
+            ]
+          },
+          include: { department: true }
+        })
+        : null;
+    if (!employee) return res.status(404).json({ message: "Employee ID was not found in Employee Master." });
     if (req.user?.role === Role.EMPLOYEE && req.user.employeeId && req.user.employeeId !== employee.id) {
       return res.status(403).json({ message: "Employees can only submit their own mobile attendance." });
     }

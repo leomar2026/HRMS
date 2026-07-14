@@ -8,6 +8,7 @@ import { AppError } from "../middleware/error.js";
 import { audit } from "../utils/audit.js";
 import { companyPrintHeader, getCurrentCompanyProfile } from "../utils/companyProfile.js";
 import { csvFile, xlsxFile } from "../utils/uploadParsers.js";
+import { generateDocumentNumber } from "../utils/numberSeries.js";
 
 const router = Router();
 const adminRoles = [Role.SUPER_ADMIN, Role.ADMIN, Role.HR_MANAGER, Role.HR_OFFICER, Role.HR, Role.FINANCE, Role.ACCOUNTANT, Role.PAYROLL_OFFICER];
@@ -93,7 +94,7 @@ router.post("/", async (req, res, next) => {
     if (body.requestedAmount > maxAllowed) throw new AppError(400, "Requested loan exceeds allowed policy limit.");
     const loan = await prisma.employeeLoanRequest.create({
       data: {
-        requestNumber: `LOAN-${Date.now()}`,
+        requestNumber: await generateDocumentNumber("LOAN_REQUEST"),
         employeeId,
         loanType: body.loanType,
         requestedAmount: body.requestedAmount,

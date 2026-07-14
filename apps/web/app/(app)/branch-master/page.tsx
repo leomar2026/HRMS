@@ -1,11 +1,12 @@
 import { MasterSpecificEditForm, MasterSpecificForm } from "@/components/MasterSpecificActions";
 import { RowActionMenu, TableToolbar } from "@/components/DataTableControls";
+import { ArchiveRecordButton } from "@/components/DeleteActions";
 import { apiFetch } from "@/lib/api";
 
 type MasterRecord = { id: string; type: string; code: string; name: string; nameArabic?: string; active: boolean; createdAt?: string; metadata?: Record<string, string> };
+type CompanyProfile = { companyName: string };
 
-const fields = [
-  { name: "company", label: "Company", required: true },
+const branchFields = [
   { name: "location", label: "Location" },
   { name: "address", label: "Address" },
   { name: "city", label: "City" },
@@ -17,7 +18,14 @@ const fields = [
 ];
 
 export default async function BranchMasterPage() {
-  const records = await apiFetch<MasterRecord[]>("/master-data?type=BRANCH");
+  const [records, company] = await Promise.all([
+    apiFetch<MasterRecord[]>("/master-data?type=BRANCH"),
+    apiFetch<CompanyProfile>("/company-profile")
+  ]);
+  const fields = [
+    { name: "company", label: "Company", required: true, type: "select" as const, options: [company.companyName] },
+    ...branchFields
+  ];
   return (
     <>
       <TableToolbar title="Branch Master" count={`${records.length} records`} searchPlaceholder="Search branch" actions={[
@@ -38,7 +46,7 @@ export default async function BranchMasterPage() {
               <tr key={row.id}>
                 <td><input aria-label={`Select ${row.code}`} type="checkbox" /></td>
                 <td className="freeze-col">{row.code}</td><td>{row.name}</td><td>{row.nameArabic ?? "-"}</td><td>{row.metadata?.company ?? "-"}</td><td>{row.metadata?.location ?? "-"}</td><td>{row.metadata?.address ?? "-"}</td><td>{row.metadata?.city ?? "-"}</td><td>{row.metadata?.country ?? "-"}</td><td>{row.metadata?.telephone ?? "-"}</td><td>{row.metadata?.email ?? "-"}</td><td>{row.metadata?.branchManager ?? "-"}</td><td><span className="status">{row.active ? "ACTIVE" : "INACTIVE"}</span></td><td>{row.createdAt ? new Date(row.createdAt).toLocaleDateString() : "-"}</td>
-                <td><MasterSpecificEditForm record={row} fields={fields} /><RowActionMenu actions={[{ label: "View", href: `/api/backend/master-data/print?type=BRANCH` }, { label: row.active ? "Deactivate" : "Activate", href: `/branch-master` }, { label: "Audit History", href: `/audit-logs?entityId=${row.id}` }]} /></td>
+                <td><MasterSpecificEditForm record={row} fields={fields} /><RowActionMenu actions={[{ label: "View", href: `/api/backend/master-data/print?type=BRANCH` }, { label: row.active ? "Deactivate" : "Activate", href: `/branch-master` }, { label: "Audit History", href: `/audit-logs?entityId=${row.id}` }]} /><ArchiveRecordButton endpoint={`/api/backend/master-data/${row.id}`} label="Delete" confirmLabel={`Delete / archive branch ${row.code}?`} /></td>
               </tr>
             ))}
             {records.length === 0 ? <tr><td colSpan={15}>No records found.</td></tr> : null}

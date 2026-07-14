@@ -1,5 +1,6 @@
 import { MasterDataEditForm, MasterDataForm } from "@/components/AdminForms";
 import { RowActionMenu, TableToolbar } from "@/components/DataTableControls";
+import { ArchiveRecordButton } from "@/components/DeleteActions";
 import { apiFetch } from "@/lib/api";
 
 type MasterData = { id: string; type: string; code: string; name: string; nameArabic?: string; active: boolean };
@@ -39,6 +40,7 @@ export default async function MasterDataPage() {
                 <td>
                   <MasterDataEditForm record={record} />
                   <RowActionMenu actions={[{ label: "Open related groups", href: `/group-management?type=${encodeURIComponent(record.type)}` }]} />
+                  <ArchiveRecordButton endpoint={`/api/backend/master-data/${record.id}`} label="Delete" confirmLabel={`Delete / archive ${record.code}?`} />
                 </td>
               </tr>
             ))}

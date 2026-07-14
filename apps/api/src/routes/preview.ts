@@ -9,6 +9,7 @@ import { getQiwaStatus } from "../services/qiwaService.js";
 import { companyPrintHeader, getCurrentCompanyProfile, payslipCompanyFromProfile } from "../utils/companyProfile.js";
 import { renderPayslipPdf } from "../utils/payslipRenderer.js";
 import { getPreviewCompanyProfile, updatePreviewCompanyProfile } from "../utils/previewCompanyProfile.js";
+import { defaultNumberSeries } from "../utils/numberSeries.js";
 import { rowsFromUpload, xlsxFile, xlsxTemplate, type UploadRow } from "../utils/uploadParsers.js";
 
 export const previewRouter = Router();
@@ -441,6 +442,19 @@ previewRouter.patch("/employees/:id", (req, res) => {
   }
   res.json({ ...previewEmployeeById(String(req.params.id)), ...req.body, id: req.params.id, updatedAt: new Date().toISOString() });
 });
+previewRouter.delete("/employees/:id", (req, res) => {
+  if (!["SUPER_ADMIN", "ADMIN", "HR_MANAGER", "HR_OFFICER", "HR"].includes(String(req.user?.role))) {
+    return res.status(403).json({ message: "Insufficient permissions" });
+  }
+  const archivedAt = new Date().toISOString();
+  const importedIndex = previewImportedEmployees.findIndex((record) => record.id === req.params.id || record.employeeCode === req.params.id);
+  if (importedIndex >= 0) {
+    previewImportedEmployees[importedIndex] = { ...previewImportedEmployees[importedIndex], status: "ARCHIVED", archivedAt };
+    writePreviewImportedEmployees(previewImportedEmployees);
+    return res.json(previewImportedEmployees[importedIndex]);
+  }
+  res.json({ ...previewEmployeeById(String(req.params.id)), id: req.params.id, status: "ARCHIVED", archivedAt });
+});
 previewRouter.patch("/employees/:id/user-role", (req, res) => {
   const role = String(req.body.role ?? "EMPLOYEE");
   const portalStatus = String(req.body.portalStatus ?? "ACTIVE");
@@ -780,11 +794,11 @@ const makeBiometricDevice = (id: string, deviceCode: string, deviceName: string,
   lastSyncAt: new Date().toISOString(),
   connectionStatus: "NOT_TESTED",
   syncIntervalMinutes: 15,
+  mobileEnabled: true,
+  siteLatitude: branch === "Riyadh" ? 24.7136 : branch === "Jeddah" ? 21.4858 : branch === "Dammam" ? 26.4207 : 24.4672,
+  siteLongitude: branch === "Riyadh" ? 46.6753 : branch === "Jeddah" ? 39.1925 : branch === "Dammam" ? 50.0888 : 46.7112,
+  siteRadiusMeters: 250,
   remarks: "Configure IP/port, ADMS, or BioTime settings before live sync.",
-  mobileEnabled: id === "preview-zkteco-ruh",
-  siteLatitude: id === "preview-zkteco-ruh" ? 24.7136 : null,
-  siteLongitude: id === "preview-zkteco-ruh" ? 46.6753 : null,
-  siteRadiusMeters: id === "preview-zkteco-ruh" ? 250 : 150,
   _count: { logs: id === "preview-zkteco-ruh" ? 3 : 0, mappings: id === "preview-zkteco-ruh" ? 2 : 0 }
 });
 const biometricDevices = [
@@ -821,6 +835,40 @@ previewRouter.patch("/biometrics/devices/:id", (req, res) => res.json({ ...biome
 previewRouter.delete("/biometrics/devices/:id", (req, res) => res.json({ ...biometricDevice, id: req.params.id, status: "INACTIVE" }));
 previewRouter.post("/biometrics/devices/:id/test-connection", (req, res) => res.json({ ok: true, message: "Preview connection test completed. Configure a real device before production sync.", device: { ...biometricDevice, id: req.params.id } }));
 previewRouter.post("/biometrics/devices/:id/sync", (req, res) => res.status(400).json({ id: "preview-sync-failed", deviceId: req.params.id, status: "FAILED", errorMessage: "Preview mode does not connect to a live biometric machine." }));
+previewRouter.get("/biometrics/mobile-config", (_req, res) => res.json({
+  timezone: "Asia/Riyadh",
+  sites: biometricDevices.filter((device) => device.mobileEnabled).map((device) => ({
+    id: device.id,
+    name: device.deviceName,
+    branch: device.branch,
+    location: device.deviceLocation,
+    timezone: device.timezone,
+    latitude: device.siteLatitude,
+    longitude: device.siteLongitude,
+    radiusMeters: device.siteRadiusMeters
+  }))
+}));
+previewRouter.post("/biometrics/mobile-punch", (req, res) => {
+  const employee = previewEmployeeForUser(req.user);
+  const site = biometricDevices.find((device) => device.mobileEnabled) ?? biometricDevice;
+  res.status(201).json({
+    ok: true,
+    message: req.body.punchType === "CHECK_OUT" ? "Time out recorded." : "Time in recorded.",
+    employeeCode: employee.employeeCode,
+    employeeName: `${employee.firstName} ${employee.lastName}`,
+    siteName: site.deviceName,
+    punchTime: new Date().toISOString(),
+    timezone: "Asia/Riyadh",
+    distanceMeters: 0,
+    attendanceRecord: {
+      id: `preview-mobile-attendance-${Date.now()}`,
+      employeeId: employee.id,
+      workDate: new Date().toISOString(),
+      source: "MOBILE",
+      attendanceStatus: "INCOMPLETE_ATTENDANCE"
+    }
+  });
+});
 previewRouter.post("/biometrics/import", (_req, res) => res.status(201).json({ id: "preview-import-1", status: "COMPLETED", pulledCount: 2, processedCount: 1, unmatchedCount: 1, duplicateCount: 0 }));
 previewRouter.get("/biometrics/mobile-config", (_req, res) => res.json({
   timezone: "Asia/Riyadh",
@@ -2022,9 +2070,18 @@ function writePreviewMasterData(records: Array<Record<string, unknown>>) {
   fs.writeFileSync(previewMasterDataPath, JSON.stringify(records, null, 2), "utf8");
 }
 const previewMasterData = readPreviewMasterData();
+function previewMasterWithCurrentCompany(records: Array<Record<string, unknown>>) {
+  const company = getPreviewCompanyProfile();
+  return records.map((record) => {
+    if (record.type !== "BRANCH") return record;
+    const metadata = record.metadata && typeof record.metadata === "object" && !Array.isArray(record.metadata) ? record.metadata as Record<string, unknown> : {};
+    return { ...record, metadata: { ...metadata, company: company.companyName } };
+  });
+}
 previewRouter.get("/master-data", (req, res) => {
   const type = typeof req.query.type === "string" ? req.query.type : undefined;
-  res.json(type ? previewMasterData.filter((record) => record.type === type) : previewMasterData);
+  const records = type ? previewMasterData.filter((record) => record.type === type) : previewMasterData;
+  res.json(previewMasterWithCurrentCompany(records));
 });
 previewRouter.get("/master-data/template.csv", (_req, res) => {
   res.header("Content-Type", "text/csv");
@@ -2035,13 +2092,13 @@ previewRouter.get("/master-data/template.xlsx", async (_req, res) => {
 });
 previewRouter.get("/master-data/export.csv", (req, res) => {
   const type = typeof req.query.type === "string" ? req.query.type : undefined;
-  const records = type ? previewMasterData.filter((record) => record.type === type) : previewMasterData;
+  const records = previewMasterWithCurrentCompany(type ? previewMasterData.filter((record) => record.type === type) : previewMasterData);
   res.header("Content-Type", "text/csv");
   res.send(["type,code,name,nameArabic,active", ...records.map((record) => `${record.type},${record.code},${record.name},${record.nameArabic ?? ""},${record.active}`)].join("\n"));
 });
 previewRouter.get("/master-data/export.xlsx", async (req, res) => {
   const type = typeof req.query.type === "string" ? req.query.type : undefined;
-  const records = type ? previewMasterData.filter((record) => record.type === type) : previewMasterData;
+  const records = previewMasterWithCurrentCompany(type ? previewMasterData.filter((record) => record.type === type) : previewMasterData);
   await xlsxFile(res, "master-data-export.xlsx", ["type", "code", "name", "nameArabic", "active"], records.map((record) => [record.type, record.code, record.name, record.nameArabic ?? "", record.active]), "Master Data");
 });
 previewRouter.get("/master-data/export.pdf", (req, res) => {
@@ -2051,16 +2108,21 @@ previewRouter.get("/master-data/export.pdf", (req, res) => {
 });
 previewRouter.get("/master-data/print", (req, res) => {
   const type = typeof req.query.type === "string" ? req.query.type : undefined;
-  const records = type ? previewMasterData.filter((record) => record.type === type) : previewMasterData;
+  const company = getPreviewCompanyProfile();
+  const records = previewMasterWithCurrentCompany(type ? previewMasterData.filter((record) => record.type === type) : previewMasterData);
   const rows = records.map((record) => `<tr><td>${record.type}</td><td>${record.code}</td><td>${record.name}</td><td>${record.nameArabic ?? ""}</td><td>${record.active ? "ACTIVE" : "INACTIVE"}</td></tr>`).join("");
   res.header("Content-Type", "text/html");
-  res.send(`<!doctype html><html><body><button onclick="window.print()">Print</button><table border="1"><tbody>${rows}</tbody></table></body></html>`);
+  res.send(`<!doctype html><html><body><button onclick="window.print()">Print</button><h1>${company.companyName}</h1><table border="1"><tbody>${rows}</tbody></table></body></html>`);
 });
 previewRouter.post("/master-data/import", (_req, res) => res.status(201).json({ message: "Import completed successfully.", createdCount: 1, updatedCount: 0, failedCount: 0, errors: [] }));
 previewRouter.post("/master-data", (req, res) => {
-  const duplicate = previewMasterData.find((record) => record.type === req.body.type && record.code === req.body.code);
+  const type = String(req.body.type ?? "").trim().toUpperCase();
+  const code = String(req.body.code ?? "").trim() || previewGenerateNumber(`MASTER_${type}`);
+  const duplicate = previewMasterData.find((record) => record.type === type && record.code === code);
   if (duplicate) return res.status(409).json({ message: "Master code must be unique for this master type." });
-  const record = { id: `md-${Date.now()}`, createdAt: new Date().toISOString(), archivedAt: null, ...req.body };
+  const metadata = req.body.metadata && typeof req.body.metadata === "object" && !Array.isArray(req.body.metadata) ? { ...req.body.metadata } : {};
+  if (type === "BRANCH") metadata.company = getPreviewCompanyProfile().companyName;
+  const record = { id: `md-${Date.now()}`, createdAt: new Date().toISOString(), archivedAt: null, ...req.body, type, code, metadata };
   previewMasterData.push(record);
   writePreviewMasterData(previewMasterData);
   res.status(201).json(record);
@@ -2078,6 +2140,72 @@ previewRouter.delete("/master-data/:id", (req, res) => {
   previewMasterData[index] = { ...previewMasterData[index], active: false, archivedAt: new Date().toISOString() };
   writePreviewMasterData(previewMasterData);
   res.json(previewMasterData[index]);
+});
+
+const previewNumberSeriesPath = path.join(process.cwd(), ".preview", "number-series.json");
+function readPreviewNumberSeries() {
+  try {
+    if (!fs.existsSync(previewNumberSeriesPath)) {
+      return defaultNumberSeries.map((item) => ({ id: `series-${item.code}`, ...item, separator: item.separator ?? "-", padding: item.padding ?? 5, nextNumber: 1, startNumber: 1, resetFrequency: item.resetFrequency ?? "YEARLY", lastResetKey: String(new Date().getFullYear()), active: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }));
+    }
+    const parsed = JSON.parse(fs.readFileSync(previewNumberSeriesPath, "utf8"));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+function writePreviewNumberSeries(records: Array<Record<string, unknown>>) {
+  fs.mkdirSync(path.dirname(previewNumberSeriesPath), { recursive: true });
+  fs.writeFileSync(previewNumberSeriesPath, JSON.stringify(records, null, 2), "utf8");
+}
+const previewNumberSeries = readPreviewNumberSeries();
+function previewApplyDateTokens(value: string) {
+  const now = new Date();
+  return value.replaceAll("{YYYY}", String(now.getFullYear())).replaceAll("{YY}", String(now.getFullYear()).slice(-2)).replaceAll("{MM}", String(now.getMonth() + 1).padStart(2, "0")).replaceAll("{DD}", String(now.getDate()).padStart(2, "0"));
+}
+function previewGenerateNumber(code: string) {
+  let index = previewNumberSeries.findIndex((row) => row.code === code);
+  if (index < 0) {
+    const fallback = defaultNumberSeries.find((item) => item.code === code) ?? { code, name: code.replace(/_/g, " "), prefix: code, padding: 5, separator: "-", resetFrequency: "NEVER" };
+    previewNumberSeries.push({ id: `series-${code}`, ...fallback, separator: fallback.separator ?? "-", padding: fallback.padding ?? 5, nextNumber: 1, startNumber: 1, resetFrequency: fallback.resetFrequency ?? "NEVER", active: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+    index = previewNumberSeries.length - 1;
+  }
+  const row = previewNumberSeries[index];
+  const issued = Number(row.nextNumber ?? 1);
+  previewNumberSeries[index] = { ...row, nextNumber: issued + 1, updatedAt: new Date().toISOString() };
+  writePreviewNumberSeries(previewNumberSeries);
+  return `${previewApplyDateTokens(String(row.prefix ?? code))}${String(row.separator ?? "-")}${String(issued).padStart(Number(row.padding ?? 5), "0")}`;
+}
+previewRouter.get("/number-series", (_req, res) => res.json(previewNumberSeries));
+previewRouter.get("/number-series/defaults", (_req, res) => res.json(defaultNumberSeries));
+previewRouter.post("/number-series/initialize-defaults", (_req, res) => {
+  for (const item of defaultNumberSeries) {
+    if (!previewNumberSeries.some((row) => row.code === item.code)) {
+      previewNumberSeries.push({ id: `series-${item.code}`, ...item, separator: item.separator ?? "-", padding: item.padding ?? 5, nextNumber: 1, startNumber: 1, resetFrequency: item.resetFrequency ?? "YEARLY", active: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+    }
+  }
+  writePreviewNumberSeries(previewNumberSeries);
+  res.json(previewNumberSeries);
+});
+previewRouter.post("/number-series", (req, res) => {
+  const row = { id: `series-${Date.now()}`, active: true, nextNumber: 1, startNumber: 1, separator: "-", padding: 5, resetFrequency: "YEARLY", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), ...req.body };
+  previewNumberSeries.push(row);
+  writePreviewNumberSeries(previewNumberSeries);
+  res.status(201).json(row);
+});
+previewRouter.patch("/number-series/:id", (req, res) => {
+  const index = previewNumberSeries.findIndex((row) => row.id === req.params.id);
+  if (index < 0) return res.status(404).json({ message: "Number series not found" });
+  previewNumberSeries[index] = { ...previewNumberSeries[index], ...req.body, updatedAt: new Date().toISOString() };
+  writePreviewNumberSeries(previewNumberSeries);
+  res.json(previewNumberSeries[index]);
+});
+previewRouter.delete("/number-series/:id", (req, res) => {
+  const index = previewNumberSeries.findIndex((row) => row.id === req.params.id);
+  if (index < 0) return res.status(404).json({ message: "Number series not found" });
+  previewNumberSeries[index] = { ...previewNumberSeries[index], active: false, archivedAt: new Date().toISOString() };
+  writePreviewNumberSeries(previewNumberSeries);
+  res.json(previewNumberSeries[index]);
 });
 
 previewRouter.get("/permissions", (_req, res) => res.json([

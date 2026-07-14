@@ -9,6 +9,7 @@ import { AppError } from "../middleware/error.js";
 import { audit } from "../utils/audit.js";
 import { companyPrintHeader, getCurrentCompanyProfile } from "../utils/companyProfile.js";
 import { csvFile, numberValue, rowsFromUpload, xlsxFile, xlsxTemplate } from "../utils/uploadParsers.js";
+import { generateDocumentNumber } from "../utils/numberSeries.js";
 
 const router = Router();
 const adminRoles = [Role.SUPER_ADMIN, Role.ADMIN, Role.HR_MANAGER, Role.HR_OFFICER, Role.HR];
@@ -150,10 +151,6 @@ function manualGross(input: { newBasicSalary: number; newHousingAllowance: numbe
   return input.newBasicSalary + input.newHousingAllowance + input.newTransportAllowance + input.newOtherAllowance;
 }
 
-function reference(prefix: string) {
-  return `${prefix}-${new Date().getFullYear()}-${Date.now()}`;
-}
-
 function nextManualStatus(action: z.infer<typeof manualDecisionSchema>["action"]) {
   if (action === "SUBMIT") return { status: "SUBMITTED", approver: "HR Manager" };
   if (action === "HR_MANAGER_APPROVE") return { status: "PENDING_FINANCE_APPROVAL", approver: "Finance" };
@@ -276,7 +273,7 @@ router.post("/manual", requireRoles(...salaryAppraisalRoles), async (req, res, n
     if (duplicate) throw new AppError(409, "Duplicate appraisal for the same employee and effective date already exists.");
     const record = await prisma.manualAppraisal.create({
       data: {
-        referenceNumber: body.referenceNumber || reference("MAPP"),
+        referenceNumber: body.referenceNumber || await generateDocumentNumber("MANUAL_APPRAISAL"),
         employeeId: employee.id,
         appraisalType: body.appraisalType,
         effectiveDate: body.effectiveDate,
@@ -474,7 +471,7 @@ router.post("/bulk", requireRoles(...salaryAppraisalRoles), async (req, res, nex
     const validRows = rows.filter((row) => row.valid);
     const batch = await prisma.appraisalBatch.create({
       data: {
-        batchNumber: reference("BAPP"),
+        batchNumber: await generateDocumentNumber("APPRAISAL_BATCH"),
         uploadFileName: input.fileName,
         uploadedBy: req.user?.id,
         numberOfEmployees: validRows.length,
@@ -599,7 +596,7 @@ router.post("/", requireRoles(...adminRoles), async (req, res, next) => {
     if (!body.employeeId) throw new AppError(400, "employeeId is required");
     const appraisal = await prisma.performanceAppraisal.create({
       data: {
-        referenceNumber: `APP-${Date.now()}`,
+        referenceNumber: await generateDocumentNumber("PERFORMANCE_APPRAISAL"),
         employeeId: body.employeeId,
         periodCode: body.periodCode,
         templateId: body.templateId,

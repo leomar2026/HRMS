@@ -44,7 +44,7 @@ function payloadFromForm(formData: FormData, masterType: string, fields: Field[]
 }
 
 function FieldControl({ field, record }: { field: Field; record?: MasterRecord }) {
-  const defaultValue = String(record?.metadata?.[field.name] ?? "");
+  const defaultValue = String(record?.metadata?.[field.name] ?? (field.options?.length === 1 ? field.options[0] : ""));
   if (field.type === "checkbox") {
     return <label className="status"><input name={field.name} type="checkbox" defaultChecked={Boolean(record?.metadata?.[field.name])} /> {field.label}</label>;
   }
@@ -85,7 +85,7 @@ export function MasterSpecificForm({ masterType, fields }: { masterType: string;
   return (
     <form action={submit} className="form-panel grid">
       <div className="form-grid">
-        <label className="field"><span>Code</span><input name="code" required /></label>
+        <label className="field"><span>Code</span><input name="code" placeholder="Auto from number series" /></label>
         <label className="field"><span>Name English</span><input name="name" required /></label>
         <label className="field"><span>Name Arabic</span><input name="nameArabic" /></label>
         <label className="field"><span>Status</span><select name="status" defaultValue="ACTIVE"><option>ACTIVE</option><option>INACTIVE</option></select></label>

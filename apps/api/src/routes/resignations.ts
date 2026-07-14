@@ -8,6 +8,7 @@ import { AppError } from "../middleware/error.js";
 import { audit } from "../utils/audit.js";
 import { companyPrintHeader, getCurrentCompanyProfile } from "../utils/companyProfile.js";
 import { csvFile, xlsxFile } from "../utils/uploadParsers.js";
+import { generateDocumentNumber } from "../utils/numberSeries.js";
 
 const router = Router();
 const adminRoles: Role[] = [Role.SUPER_ADMIN, Role.ADMIN, Role.HR_MANAGER, Role.HR_OFFICER, Role.HR, Role.FINANCE, Role.ACCOUNTANT];
@@ -107,16 +108,18 @@ const defaultClearance = [
 async function createClearanceItems(resignationId: string, employeeId: string) {
   const existing = await prisma.exitClearanceItem.count({ where: { resignationId } });
   if (existing > 0) return;
-  await prisma.exitClearanceItem.createMany({
-    data: defaultClearance.map(([assignedDepartment, clearanceItem], index) => ({
-      clearanceNumber: `CLR-${Date.now()}-${index + 1}`,
+  for (const [assignedDepartment, clearanceItem] of defaultClearance) {
+    await prisma.exitClearanceItem.create({
+      data: {
+      clearanceNumber: await generateDocumentNumber("EXIT_CLEARANCE"),
       resignationId,
       employeeId,
       assignedDepartment,
       clearanceItem,
       mandatory: true
-    }))
-  });
+      }
+    });
+  }
 }
 
 router.get("/", async (req, res) => {
@@ -141,7 +144,7 @@ router.post("/", async (req, res, next) => {
     if (!employeeId) throw new AppError(400, "employeeId is required");
     const resignation = await prisma.resignationRequest.create({
       data: {
-        requestNumber: `RES-${Date.now()}`,
+        requestNumber: await generateDocumentNumber("RESIGNATION"),
         employeeId,
         proposedLastWorkingDate: body.proposedLastWorkingDate,
         noticePeriodRequired: body.noticePeriodRequired,
@@ -256,7 +259,7 @@ router.post("/:id/final-settlement", requireRoles(...adminRoles), async (req, re
     const settlement = await prisma.finalSettlement.upsert({
       where: { resignationId: resignation.id },
       create: {
-        settlementNumber: `SET-${Date.now()}`,
+        settlementNumber: await generateDocumentNumber("FINAL_SETTLEMENT"),
         resignationId: resignation.id,
         employeeId: resignation.employeeId,
         lastWorkingDate,

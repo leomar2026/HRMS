@@ -8,6 +8,7 @@ import { audit } from "../utils/audit.js";
 import { csvFile, csvTemplate, numberValue, rowsFromUpload, xlsxFile, xlsxTemplate } from "../utils/uploadParsers.js";
 import { renderPayslipPdf, type PayslipComponent, type PayslipInput } from "../utils/payslipRenderer.js";
 import { companyPrintHeader, getCurrentCompanyProfile, payslipCompanyFromProfile } from "../utils/companyProfile.js";
+import { generateDocumentNumber } from "../utils/numberSeries.js";
 
 const router = Router();
 
@@ -234,7 +235,7 @@ router.post("/", async (req, res, next) => {
           iban: row.IBAN,
           paymentDate: new Date(row["Payment Date"]),
           remarks: row["Payroll Remarks"],
-          documentReference: `PAY-${body.year}-${String(body.month).padStart(2, "0")}-${employee.employeeCode}-${batch.id.slice(-6)}`
+          documentReference: `${await generateDocumentNumber("PAYSLIP")}-${employee.employeeCode}`
         }
       });
     }

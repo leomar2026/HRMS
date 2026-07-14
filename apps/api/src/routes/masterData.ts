@@ -7,20 +7,35 @@ import { requireAuth } from "../middleware/auth.js";
 import { requireRoles } from "../middleware/rbac.js";
 import { audit } from "../utils/audit.js";
 import { csvFile, csvTemplate, rowsFromUpload, xlsxFile, xlsxTemplate } from "../utils/uploadParsers.js";
+import { companyPrintHeader, getCurrentCompanyProfile } from "../utils/companyProfile.js";
+import { generateDocumentNumber } from "../utils/numberSeries.js";
 
 const router = Router();
 
 const masterSchema = z.object({
   type: z.string().min(2),
-  code: z.string().min(1),
+  code: z.string().optional(),
   name: z.string().min(2),
   nameArabic: z.string().optional(),
   active: z.boolean().default(true),
   metadata: z.record(z.unknown()).optional()
 });
+const masterImportSchema = masterSchema.extend({ code: z.string().min(1) });
 
 const writeRoles = [Role.SUPER_ADMIN, Role.ADMIN, Role.HR_MANAGER, Role.HR_OFFICER, Role.HR];
 const headers = ["type", "code", "name", "nameArabic", "active"];
+
+function withCurrentCompany(record: { type: string; metadata: Prisma.JsonValue | null }) {
+  return record.type === "BRANCH";
+}
+
+function applyCurrentCompany(records: Array<Prisma.MasterDataGetPayload<object>>, companyName: string) {
+  return records.map((record) => {
+    if (!withCurrentCompany(record)) return record;
+    const metadata = record.metadata && typeof record.metadata === "object" && !Array.isArray(record.metadata) ? record.metadata as Record<string, unknown> : {};
+    return { ...record, metadata: { ...metadata, company: companyName } };
+  });
+}
 
 router.use(requireAuth);
 
@@ -35,7 +50,8 @@ router.get("/", requireRoles(...writeRoles, Role.ACCOUNTANT, Role.PAYROLL_OFFICE
     },
     orderBy: [{ type: "asc" }, { code: "asc" }]
   });
-  res.json(records);
+  const company = await getCurrentCompanyProfile();
+  res.json(applyCurrentCompany(records, company.companyName));
 });
 
 router.get("/template.csv", requireRoles(...writeRoles), (_req, res) => {
@@ -50,27 +66,31 @@ router.get("/template.xlsx", requireRoles(...writeRoles), async (_req, res) => {
 
 router.get("/export.csv", requireRoles(...writeRoles, Role.ACCOUNTANT, Role.PAYROLL_OFFICER, Role.FINANCE, Role.AUDITOR), async (req, res) => {
   const type = typeof req.query.type === "string" ? req.query.type : undefined;
-  const records = await prisma.masterData.findMany({ where: { archivedAt: null, ...(type ? { type } : {}) }, orderBy: [{ type: "asc" }, { code: "asc" }] });
+  const company = await getCurrentCompanyProfile();
+  const records = applyCurrentCompany(await prisma.masterData.findMany({ where: { archivedAt: null, ...(type ? { type } : {}) }, orderBy: [{ type: "asc" }, { code: "asc" }] }), company.companyName);
   await audit(req, "EXPORT", "MasterData", undefined, { format: "CSV", type, count: records.length });
   csvFile(res, "master-data-export.csv", headers, records.map((record) => [record.type, record.code, record.name, record.nameArabic ?? "", record.active]));
 });
 
 router.get("/export.xlsx", requireRoles(...writeRoles, Role.ACCOUNTANT, Role.PAYROLL_OFFICER, Role.FINANCE, Role.AUDITOR), async (req, res) => {
   const type = typeof req.query.type === "string" ? req.query.type : undefined;
-  const records = await prisma.masterData.findMany({ where: { archivedAt: null, ...(type ? { type } : {}) }, orderBy: [{ type: "asc" }, { code: "asc" }] });
+  const company = await getCurrentCompanyProfile();
+  const records = applyCurrentCompany(await prisma.masterData.findMany({ where: { archivedAt: null, ...(type ? { type } : {}) }, orderBy: [{ type: "asc" }, { code: "asc" }] }), company.companyName);
   await audit(req, "EXPORT", "MasterData", undefined, { format: "XLSX", type, count: records.length });
   await xlsxFile(res, "master-data-export.xlsx", headers, records.map((record) => [record.type, record.code, record.name, record.nameArabic ?? "", record.active]), "Master Data");
 });
 
 router.get("/export.pdf", requireRoles(...writeRoles, Role.ACCOUNTANT, Role.PAYROLL_OFFICER, Role.FINANCE, Role.AUDITOR), async (req, res) => {
   const type = typeof req.query.type === "string" ? req.query.type : undefined;
-  const records = await prisma.masterData.findMany({ where: { archivedAt: null, ...(type ? { type } : {}) }, orderBy: [{ type: "asc" }, { code: "asc" }] });
+  const company = await getCurrentCompanyProfile();
+  const records = applyCurrentCompany(await prisma.masterData.findMany({ where: { archivedAt: null, ...(type ? { type } : {}) }, orderBy: [{ type: "asc" }, { code: "asc" }] }), company.companyName);
   await audit(req, "EXPORT", "MasterData", undefined, { format: "PDF", type, count: records.length });
   const doc = new PDFDocument({ size: "A4", margin: 36 });
   res.header("Content-Type", "application/pdf");
   res.attachment(`${type ? type.toLowerCase() : "master-data"}-export.pdf`);
   doc.pipe(res);
-  doc.fontSize(16).text(type ? `${type.replace(/_/g, " ")} Master` : "Master Data Export");
+  doc.fontSize(16).text(company.companyName);
+  doc.fontSize(12).text(type ? `${type.replace(/_/g, " ")} Master` : "Master Data Export");
   doc.moveDown();
   records.forEach((record) => {
     doc.fontSize(9).text(`${record.type} | ${record.code} | ${record.name} | ${record.nameArabic ?? "-"} | ${record.active ? "ACTIVE" : "INACTIVE"}`);
@@ -80,11 +100,12 @@ router.get("/export.pdf", requireRoles(...writeRoles, Role.ACCOUNTANT, Role.PAYR
 
 router.get("/print", requireRoles(...writeRoles, Role.ACCOUNTANT, Role.PAYROLL_OFFICER, Role.FINANCE, Role.AUDITOR), async (req, res) => {
   const type = typeof req.query.type === "string" ? req.query.type : undefined;
-  const records = await prisma.masterData.findMany({ where: { archivedAt: null, ...(type ? { type } : {}) }, orderBy: [{ type: "asc" }, { code: "asc" }] });
+  const company = await getCurrentCompanyProfile();
+  const records = applyCurrentCompany(await prisma.masterData.findMany({ where: { archivedAt: null, ...(type ? { type } : {}) }, orderBy: [{ type: "asc" }, { code: "asc" }] }), company.companyName);
   await audit(req, "PRINT", "MasterData", undefined, { type, count: records.length });
   const rows = records.map((record) => `<tr><td>${record.type}</td><td>${record.code}</td><td>${record.name}</td><td>${record.nameArabic ?? ""}</td><td>${record.active ? "ACTIVE" : "INACTIVE"}</td></tr>`).join("");
   res.header("Content-Type", "text/html");
-  res.send(`<!doctype html><html><head><title>${type ?? "Master Data"} Print</title><style>body{font-family:Arial;margin:24px;font-size:12px}table{width:100%;border-collapse:collapse}td,th{border:1px solid #d1d5db;padding:6px;text-align:left}h1{font-size:18px}@media print{button{display:none}}</style></head><body><button onclick="window.print()">Print</button><h1>${type ? type.replace(/_/g, " ") : "Master Data"}</h1><table><thead><tr><th>Type</th><th>Code</th><th>Name</th><th>Arabic</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></body></html>`);
+  res.send(`<!doctype html><html><head><title>${type ?? "Master Data"} Print</title><style>body{font-family:Arial;margin:24px;font-size:12px}.head{border-bottom:2px solid #0f766e;margin-bottom:20px;padding-bottom:12px}.brand-line{display:flex;gap:16px;align-items:center}table{width:100%;border-collapse:collapse}td,th{border:1px solid #d1d5db;padding:6px;text-align:left}h1{font-size:18px}@media print{button{display:none}}</style></head><body><button onclick="window.print()">Print</button>${companyPrintHeader(company, type ? `${type.replace(/_/g, " ")} Master` : "Master Data")}<table><thead><tr><th>Type</th><th>Code</th><th>Name</th><th>Arabic</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></body></html>`);
 });
 
 router.post("/import", requireRoles(...writeRoles), async (req, res, next) => {
@@ -98,7 +119,7 @@ router.post("/import", requireRoles(...writeRoles), async (req, res, next) => {
     let updatedCount = 0;
     const errors: Array<{ row: number; message: string }> = [];
     for (const [index, row] of rows.entries()) {
-      const parsed = masterSchema.safeParse({ ...row, active: row.active === undefined || row.active === "" ? true : String(row.active).toLowerCase() !== "false" });
+      const parsed = masterImportSchema.safeParse({ ...row, active: row.active === undefined || row.active === "" ? true : String(row.active).toLowerCase() !== "false" });
       if (!parsed.success) {
         errors.push({ row: index + 2, message: parsed.error.issues.map((issue) => issue.message).join("; ") });
         continue;
@@ -121,7 +142,12 @@ router.post("/import", requireRoles(...writeRoles), async (req, res, next) => {
 router.post("/", requireRoles(...writeRoles), async (req, res, next) => {
   try {
     const body = masterSchema.parse(req.body);
-    const record = await prisma.masterData.create({ data: { ...body, metadata: body.metadata as Prisma.InputJsonValue | undefined } });
+    const type = body.type.trim().toUpperCase();
+    const code = body.code?.trim() || await generateDocumentNumber(`MASTER_${type}`);
+    const company = await getCurrentCompanyProfile();
+    const metadata = body.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata) ? { ...body.metadata } : {};
+    if (type === "BRANCH") metadata.company = company.companyName;
+    const record = await prisma.masterData.create({ data: { ...body, type, code, metadata: metadata as Prisma.InputJsonValue | undefined } });
     await audit(req, "CREATE", "MasterData", record.id, { type: record.type }, undefined, record);
     res.status(201).json(record);
   } catch (error) {

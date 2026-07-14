@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Banknote, Bell, BriefcaseBusiness, ClipboardCheck, FileClock, LayoutDashboard, LogOut, Plane, ReceiptText, Umbrella, UserMinus, UserRound } from "lucide-react";
+import { Banknote, Bell, BriefcaseBusiness, ClipboardCheck, FileClock, Fingerprint, LayoutDashboard, LogOut, Plane, ReceiptText, Umbrella, UserMinus, UserRound } from "lucide-react";
 
 const links = [
   { href: "/employee/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/employee/profile", label: "My Profile", icon: UserRound },
+  { href: "/employee/mobile-attendance", label: "Mobile Time In", icon: Fingerprint },
   { href: "/employee/payslips", label: "My Payslips", icon: ReceiptText },
   { href: "/employee/leaves", label: "Leave Requests", icon: FileClock },
   { href: "/employee/vacation-balance", label: "Vacation Balance", icon: Umbrella },

@@ -14,6 +14,7 @@ import { env } from "../config/env.js";
 
 const router = Router();
 const previewImportedEmployeesPath = path.join(process.cwd(), ".preview", "imported-employees.json");
+const previewEmployeeStatusPath = path.join(process.cwd(), ".preview", "employee-status-overrides.json");
 
 const loginSchema = z.object({
   loginId: z.string().min(2).optional(),
@@ -92,6 +93,33 @@ function dashboardForRole(role: Role) {
   return "/dashboard";
 }
 
+function readPreviewEmployeeStatusOverrides() {
+  try {
+    if (!fs.existsSync(previewEmployeeStatusPath)) return {};
+    const parsed = JSON.parse(fs.readFileSync(previewEmployeeStatusPath, "utf8"));
+    return parsed && typeof parsed === "object" ? parsed as Record<string, { role?: string; portalStatus?: string }> : {};
+  } catch {
+    return {};
+  }
+}
+
+function previewRole(value: unknown, fallback: Role) {
+  const role = String(value ?? "");
+  return (Object.values(Role) as string[]).includes(role) ? role as Role : fallback;
+}
+
+function previewAccessForEmployee(record: Record<string, unknown>, fallbackRole: Role) {
+  const overrides = readPreviewEmployeeStatusOverrides();
+  const id = String(record.id ?? "");
+  const code = String(record.employeeCode ?? "");
+  const user = (record.user as Record<string, unknown> | undefined) ?? {};
+  const override = overrides[id] ?? overrides[code];
+  return {
+    role: previewRole(override?.role ?? user.role, fallbackRole),
+    portalStatus: String(override?.portalStatus ?? user.portalStatus ?? "ACTIVE")
+  };
+}
+
 function previewImportedEmployeeLogin(loginId: string) {
   try {
     if (!fs.existsSync(previewImportedEmployeesPath)) return null;
@@ -120,32 +148,40 @@ router.post("/login", async (req, res, next) => {
     const previewImportedEmployee = env.HRMS_PREVIEW_MODE && body.password === "Employee@123" ? previewImportedEmployeeLogin(loginId) : null;
     if (previewImportedEmployee) {
       const employeeCode = String(previewImportedEmployee.employeeCode ?? loginId);
+      const access = previewAccessForEmployee(previewImportedEmployee, Role.EMPLOYEE);
+      if (["DISABLED", "ARCHIVED"].includes(access.portalStatus)) throw new AppError(403, `Portal account status is ${access.portalStatus}`);
       const user = {
         id: `preview-user-${employeeCode}`,
         email: String(previewImportedEmployee.email ?? previewImportedEmployee.companyEmail ?? `${employeeCode}@company.local`),
-        role: "EMPLOYEE" as const,
+        role: access.role,
         employeeId: String(previewImportedEmployee.id ?? `preview-${employeeCode}`)
       };
       const token = signAccessToken({ sub: user.id, email: user.email, role: user.role, employeeId: user.employeeId });
-      return res.json({ token, user, redirectTo: "/employee/dashboard" });
+      return res.json({ token, user, redirectTo: dashboardForRole(access.role) });
     }
 
     if (env.HRMS_PREVIEW_MODE && ["EMP-002", "employee@company.com"].includes(loginId) && body.password === "Employee@123") {
-      const user = { id: "preview-employee-user", email: "employee@company.com", role: "EMPLOYEE" as const, employeeId: "preview-employee-2" };
+      const access = previewAccessForEmployee({ id: "preview-employee-2", employeeCode: "EMP-002", user: { role: "EMPLOYEE", portalStatus: "ACTIVE" } }, Role.EMPLOYEE);
+      if (["DISABLED", "ARCHIVED"].includes(access.portalStatus)) throw new AppError(403, `Portal account status is ${access.portalStatus}`);
+      const user = { id: "preview-employee-user", email: "employee@company.com", role: access.role, employeeId: "preview-employee-2" };
       const token = signAccessToken({ sub: user.id, email: user.email, role: user.role, employeeId: user.employeeId });
-      return res.json({ token, user, redirectTo: "/employee/dashboard" });
+      return res.json({ token, user, redirectTo: dashboardForRole(access.role) });
     }
 
     if (env.HRMS_PREVIEW_MODE && ["EMP-010", "manager@company.com"].includes(loginId) && body.password === "Manager@123") {
-      const user = { id: "preview-manager-user", email: "manager@company.com", role: "DEPARTMENT_MANAGER" as const, employeeId: "preview-manager-1" };
+      const access = previewAccessForEmployee({ id: "preview-manager-1", employeeCode: "EMP-010", user: { role: "DEPARTMENT_MANAGER", portalStatus: "ACTIVE" } }, Role.DEPARTMENT_MANAGER);
+      if (["DISABLED", "ARCHIVED"].includes(access.portalStatus)) throw new AppError(403, `Portal account status is ${access.portalStatus}`);
+      const user = { id: "preview-manager-user", email: "manager@company.com", role: access.role, employeeId: "preview-manager-1" };
       const token = signAccessToken({ sub: user.id, email: user.email, role: user.role, employeeId: user.employeeId });
-      return res.json({ token, user, redirectTo: "/manager/dashboard" });
+      return res.json({ token, user, redirectTo: dashboardForRole(access.role) });
     }
 
     if (env.HRMS_PREVIEW_MODE && ["EMP-020", "om@company.com"].includes(loginId) && body.password === "Om@12345") {
-      const user = { id: "preview-om-user", email: "om@company.com", role: "OPERATIONS_MANAGER" as const, employeeId: "preview-om-1" };
+      const access = previewAccessForEmployee({ id: "preview-om-1", employeeCode: "EMP-020", user: { role: "OPERATIONS_MANAGER", portalStatus: "ACTIVE" } }, Role.OPERATIONS_MANAGER);
+      if (["DISABLED", "ARCHIVED"].includes(access.portalStatus)) throw new AppError(403, `Portal account status is ${access.portalStatus}`);
+      const user = { id: "preview-om-user", email: "om@company.com", role: access.role, employeeId: "preview-om-1" };
       const token = signAccessToken({ sub: user.id, email: user.email, role: user.role, employeeId: user.employeeId });
-      return res.json({ token, user, redirectTo: "/om/leave-approvals" });
+      return res.json({ token, user, redirectTo: dashboardForRole(access.role) });
     }
 
     const user = loginId.includes("@")

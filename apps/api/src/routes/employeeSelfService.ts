@@ -9,6 +9,7 @@ import { audit } from "../utils/audit.js";
 import { renderPayslipPdf, type PayslipComponent } from "../utils/payslipRenderer.js";
 import { getCurrentCompanyProfile, payslipCompanyFromProfile } from "../utils/companyProfile.js";
 import { findHrManagerUsers, findOmUsers, getLeaveApprovalWorkflow, initialStageForWorkflow, leaveStages, notifyLeaveAction, workflowStepForStage } from "../utils/leaveWorkflow.js";
+import { generateDocumentNumber } from "../utils/numberSeries.js";
 
 const router = Router();
 
@@ -302,7 +303,7 @@ router.post("/me/leaves", async (req, res, next) => {
       const initialStage = initialStageForWorkflow(workflow);
       const created = await tx.leaveRequest.create({
         data: {
-          requestNumber: `LR-${Date.now()}`,
+          requestNumber: await generateDocumentNumber("LEAVE_REQUEST", tx),
           employeeId,
           managerId: employee.managerId,
           type: body.type,

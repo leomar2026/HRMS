@@ -28,7 +28,7 @@ import {
 
 const sections = [
   { title: "Dashboard", icon: LayoutDashboard, links: [{ href: "/dashboard", label: "Dashboard" }] },
-  { title: "Administration", icon: ShieldAlert, links: [{ href: "/permissions", label: "Permissions" }, { href: "/workflow-setup", label: "Approval Workflow Setup" }, { href: "/admin-password-reset", label: "Password Reset" }, { href: "/audit-logs", label: "Audit Logs" }] },
+  { title: "Administration", icon: ShieldAlert, links: [{ href: "/permissions", label: "Permissions" }, { href: "/workflow-setup", label: "Approval Workflow Setup" }, { href: "/number-series", label: "Number Series" }, { href: "/admin-password-reset", label: "Password Reset" }, { href: "/audit-logs", label: "Audit Logs" }] },
   {
     title: "Master Data",
     icon: Database,

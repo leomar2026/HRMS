@@ -103,6 +103,29 @@ textarea {
   padding-left: 220px;
 }
 
+.mobile-time-shell {
+  min-height: 100vh;
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 18px 12px 28px;
+}
+
+.mobile-time-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.mobile-time-header h1 {
+  margin: 0;
+  font-size: calc(18px * var(--font-scale));
+}
+
 .sidebar {
   position: fixed;
   inset: 0 auto 0 0;
@@ -922,7 +945,10 @@ tbody tr:hover {
 }
 
 .row-inline-action {
-  margin-top: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 6px;
 }
 
 .attachment-field {
@@ -1170,6 +1196,34 @@ textarea {
 
 .employee-role-inline .status {
   grid-column: 1 / -1;
+}
+
+.inline-grid-form {
+  display: grid;
+  grid-template-columns: minmax(140px, 1.2fr) minmax(120px, 1fr) 48px 70px 86px 86px 95px 72px minmax(120px, 1fr) auto auto;
+  gap: 6px;
+  align-items: center;
+  min-width: 1120px;
+}
+
+.inline-grid-form input,
+.inline-grid-form select {
+  min-width: 0;
+  height: 30px;
+  font-size: 12px;
+  padding: 5px 7px;
+}
+
+.inline-grid-form .compact-save {
+  height: 30px;
+  min-height: 30px;
+  padding: 0 8px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.check-row.compact {
+  white-space: nowrap;
 }
 
 .notice {

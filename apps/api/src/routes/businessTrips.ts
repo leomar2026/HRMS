@@ -8,6 +8,7 @@ import { AppError } from "../middleware/error.js";
 import { audit } from "../utils/audit.js";
 import { companyPrintHeader, getCurrentCompanyProfile } from "../utils/companyProfile.js";
 import { csvFile, xlsxFile } from "../utils/uploadParsers.js";
+import { generateDocumentNumber } from "../utils/numberSeries.js";
 
 const router = Router();
 const adminRoles = [Role.SUPER_ADMIN, Role.ADMIN, Role.HR_MANAGER, Role.HR_OFFICER, Role.HR, Role.FINANCE, Role.ACCOUNTANT];
@@ -100,7 +101,7 @@ router.post("/", async (req, res, next) => {
     const totalEstimatedCost = body.estimatedTicketCost + body.estimatedHotelCost + body.estimatedDailyAllowance + body.estimatedOtherExpenses;
     const trip = await prisma.businessTripRequest.create({
       data: {
-        requestNumber: `TRIP-${Date.now()}`,
+        requestNumber: await generateDocumentNumber("BUSINESS_TRIP"),
         employeeId,
         tripType: body.tripType,
         purpose: body.purpose,
@@ -182,7 +183,7 @@ router.post("/expense-claims", async (req, res, next) => {
     if (trip.status !== WorkflowStatus.FINAL_APPROVED) throw new AppError(400, "Expense claim requires final approved trip.");
     const amountSar = body.amount * body.exchangeRate;
     const claim = await prisma.tripExpenseClaim.create({
-      data: { claimNumber: `TEXP-${Date.now()}`, tripRequestId: body.tripRequestId, employeeId: trip.employeeId, expenseDate: body.expenseDate, expenseCategory: body.expenseCategory, amount: body.amount, currency: body.currency, exchangeRate: body.exchangeRate, amountSar, description: body.description, receiptAttachment: body.receiptAttachment, totalClaimedAmount: amountSar, advanceReceived: body.advanceReceived, finalReimbursement: amountSar - body.advanceReceived, approvalTimeline: timeline([], { action: "SUBMIT", by: req.user?.email, at: new Date().toISOString() }) }
+      data: { claimNumber: await generateDocumentNumber("TRIP_EXPENSE"), tripRequestId: body.tripRequestId, employeeId: trip.employeeId, expenseDate: body.expenseDate, expenseCategory: body.expenseCategory, amount: body.amount, currency: body.currency, exchangeRate: body.exchangeRate, amountSar, description: body.description, receiptAttachment: body.receiptAttachment, totalClaimedAmount: amountSar, advanceReceived: body.advanceReceived, finalReimbursement: amountSar - body.advanceReceived, approvalTimeline: timeline([], { action: "SUBMIT", by: req.user?.email, at: new Date().toISOString() }) }
     });
     await audit(req, "CREATE", "TripExpenseClaim", claim.id, { claimNumber: claim.claimNumber }, undefined, claim);
     res.status(201).json(claim);

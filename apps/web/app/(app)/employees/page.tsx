@@ -1,4 +1,5 @@
 import { RowActionMenu, TableToolbar } from "@/components/DataTableControls";
+import { ArchiveRecordButton } from "@/components/DeleteActions";
 import { EmployeeRoleForm, ProvisionMissingPortalUsersButton } from "@/components/EmployeeRoleActions";
 import { ProfileAvatar } from "@/components/ProfilePhoto";
 import { apiFetch } from "@/lib/api";
@@ -79,6 +80,7 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
                       { label: "Reprint History", href: `/api/backend/print-documents/employees/${employee.id}/history` }
                     ]}
                   />
+                  <ArchiveRecordButton endpoint={`/api/backend/employees/${employee.id}`} label="Delete" confirmLabel={`Delete / archive employee ${employee.employeeCode}?`} />
                 </td>
               </tr>
             ))}

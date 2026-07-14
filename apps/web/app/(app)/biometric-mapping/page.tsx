@@ -30,7 +30,11 @@ export default async function BiometricMappingPage() {
       <TableToolbar
         title="Biometric Mapping"
         count={`${mappings.length} records`}
-        actions={[{ label: "Devices", href: "/biometric-devices", icon: "columns" }, { label: "Logs", href: "/biometric-logs", icon: "more" }]}
+        actions={[
+          { label: "Employee Time-In Link", href: "/mobile-time-in", icon: "more" },
+          { label: "Devices", href: "/biometric-devices", icon: "columns" },
+          { label: "Logs", href: "/biometric-logs", icon: "more" }
+        ]}
         searchPlaceholder="Search mappings..."
       />
       <BiometricMappingForm devices={devices} employees={employees} />

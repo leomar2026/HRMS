@@ -9,6 +9,7 @@ import { requireRoles } from "../middleware/rbac.js";
 import { audit } from "../utils/audit.js";
 import { env } from "../config/env.js";
 import { csvFile, csvTemplate, numberValue, rowsFromUpload, type UploadRow, xlsxTemplate } from "../utils/uploadParsers.js";
+import { generateDocumentNumber } from "../utils/numberSeries.js";
 
 const router = Router();
 const importRoles: Role[] = [Role.SUPER_ADMIN, Role.ADMIN, Role.HR_MANAGER, Role.HR_OFFICER, Role.HR];
@@ -201,7 +202,7 @@ router.post("/", requireRoles(...importRoles), async (req, res, next) => {
     const validation = await validateEmployeeRows(rows, body.mode);
     const batch = await prisma.employeeImportBatch.create({
       data: {
-        batchNumber: `EMP-IMP-${Date.now()}`,
+        batchNumber: await generateDocumentNumber("EMPLOYEE_IMPORT_BATCH"),
         fileName: body.fileName,
         mode: body.mode,
         status: body.saveDraft ? "DRAFT" : validation.errors.length ? "FAILED" : "VALIDATED",

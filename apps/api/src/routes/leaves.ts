@@ -7,6 +7,7 @@ import { requireRoles } from "../middleware/rbac.js";
 import { AppError } from "../middleware/error.js";
 import { audit } from "../utils/audit.js";
 import { applyFinalLeaveApproval, approvalStatusForDecision, leaveStages, notifyLeaveAction } from "../utils/leaveWorkflow.js";
+import { generateDocumentNumber } from "../utils/numberSeries.js";
 
 const router = Router();
 
@@ -63,6 +64,7 @@ router.post("/", async (req, res, next) => {
     const days = daysBetween(body.startDate, body.endDate);
     const leave = await prisma.leaveRequest.create({
       data: {
+        requestNumber: await generateDocumentNumber("LEAVE_REQUEST"),
         employeeId,
         type: body.type,
         startDate: body.startDate,

@@ -14,7 +14,7 @@ export function MasterDataForm() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         type: formData.get("type"),
-        code: formData.get("code"),
+        code: formData.get("code") || undefined,
         name: formData.get("name"),
         nameArabic: formData.get("nameArabic") || undefined,
         active: true
@@ -28,7 +28,7 @@ export function MasterDataForm() {
     <form action={submit} className="form-panel grid">
       <div className="form-grid">
         <label className="field"><span>Type</span><input name="type" placeholder="BRANCH" required /></label>
-        <label className="field"><span>Code</span><input name="code" required /></label>
+        <label className="field"><span>Code</span><input name="code" placeholder="Auto from number series" /></label>
         <label className="field"><span>Name</span><input name="name" required /></label>
         <label className="field"><span>Arabic name</span><input name="nameArabic" /></label>
       </div>

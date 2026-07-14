@@ -40,6 +40,7 @@ import pettyCashRequestRoutes from "./routes/pettyCashRequests.js";
 import attachmentRoutes from "./routes/attachments.js";
 import printDocumentRoutes from "./routes/printDocuments.js";
 import dashboardRoutes from "./routes/dashboard.js";
+import numberSeriesRoutes from "./routes/numberSeries.js";
 
 export const app = express();
 
@@ -71,6 +72,7 @@ app.use("/api/petty-cash", pettyCashRequestRoutes);
 app.use("/api/attachments", attachmentRoutes);
 app.use("/api/print-documents", printDocumentRoutes);
 app.use("/api/dashboard", dashboardRoutes);
+app.use("/api/number-series", numberSeriesRoutes);
 app.use("/api/employees", employeeRoutes);
 app.use("/api/departments", departmentRoutes);
 app.use("/api/attendance", attendanceRoutes);

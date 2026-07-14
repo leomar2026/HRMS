@@ -10,6 +10,11 @@ const adminPaths = [
   "/departments",
   "/company-profile",
   "/attendance",
+  "/mobile-attendance",
+  "/biometric-devices",
+  "/biometric-mapping",
+  "/biometric-attendance",
+  "/biometric-logs",
   "/leave",
   "/payroll",
   "/payroll-upload",
@@ -20,6 +25,7 @@ const adminPaths = [
   ,"/reports"
   ,"/master-data"
   ,"/permissions"
+  ,"/number-series"
   ,"/announcements"
   ,"/group-management"
   ,"/admin-password-reset"
@@ -32,6 +38,10 @@ const managerAllowedAdminPaths = [
 
 const managerPaths = [
   "/manager"
+];
+
+const employeeSharedPaths = [
+  "/mobile-time-in"
 ];
 
 function decodeJwtPayload(token?: string) {
@@ -52,11 +62,20 @@ export function proxy(request: NextRequest) {
   const isProtected =
     adminPaths.some((adminPath) => path === adminPath || path.startsWith(`${adminPath}/`)) ||
     managerPaths.some((managerPath) => path === managerPath || path.startsWith(`${managerPath}/`)) ||
+    employeeSharedPaths.some((employeePath) => path === employeePath || path.startsWith(`${employeePath}/`)) ||
     path === "/employee" ||
     path.startsWith("/employee/");
 
   if (!token && isProtected) {
-    return NextResponse.redirect(new URL("/login", request.url));
+    const loginUrl = new URL("/login", request.url);
+    if (employeeSharedPaths.some((employeePath) => path === employeePath || path.startsWith(`${employeePath}/`))) {
+      loginUrl.searchParams.set("returnTo", `${request.nextUrl.pathname}${request.nextUrl.search}`);
+    }
+    return NextResponse.redirect(loginUrl);
+  }
+
+  if (role && role !== "EMPLOYEE" && employeeSharedPaths.some((employeePath) => path === employeePath || path.startsWith(`${employeePath}/`))) {
+    return NextResponse.redirect(new URL("/mobile-attendance", request.url));
   }
 
   if (role === "EMPLOYEE" && adminPaths.some((adminPath) => path === adminPath || path.startsWith(`${adminPath}/`))) {
@@ -93,6 +112,11 @@ export const config = {
     "/departments/:path*",
     "/company-profile/:path*",
     "/attendance/:path*",
+    "/mobile-attendance/:path*",
+    "/biometric-devices/:path*",
+    "/biometric-mapping/:path*",
+    "/biometric-attendance/:path*",
+    "/biometric-logs/:path*",
     "/leave/:path*",
     "/payroll/:path*",
     "/payroll-upload/:path*",
@@ -103,10 +127,12 @@ export const config = {
     "/reports/:path*",
     "/master-data/:path*",
     "/permissions/:path*",
+    "/number-series/:path*",
     "/announcements/:path*",
     "/group-management/:path*",
     "/admin-password-reset/:path*",
     "/performance-appraisals/:path*",
+    "/mobile-time-in/:path*",
     "/manager/:path*",
     "/employee/:path*"
   ]

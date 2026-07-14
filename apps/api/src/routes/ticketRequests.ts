@@ -8,6 +8,7 @@ import { AppError } from "../middleware/error.js";
 import { audit } from "../utils/audit.js";
 import { companyPrintHeader, getCurrentCompanyProfile } from "../utils/companyProfile.js";
 import { csvFile, xlsxFile } from "../utils/uploadParsers.js";
+import { generateDocumentNumber } from "../utils/numberSeries.js";
 
 const router = Router();
 const adminRoles: Role[] = [Role.SUPER_ADMIN, Role.ADMIN, Role.HR_MANAGER, Role.HR_OFFICER, Role.HR, Role.FINANCE, Role.ACCOUNTANT];
@@ -88,7 +89,7 @@ router.post("/", async (req, res, next) => {
     }
     const ticket = await prisma.ticketRequest.create({
       data: {
-        requestNumber: `TKT-${Date.now()}`,
+        requestNumber: await generateDocumentNumber("TICKET_REQUEST"),
         leaveRequestId: leave.id,
         employeeId: leave.employeeId,
         departureCountry: body.departureCountry,
