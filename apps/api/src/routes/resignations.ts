@@ -122,13 +122,18 @@ async function createClearanceItems(resignationId: string, employeeId: string) {
   }
 }
 
+function employeeScopedWhere(role?: Role, employeeId?: string | null) {
+  if (role === Role.EMPLOYEE) return { employeeId: employeeId ?? "__none__" };
+  if (role === Role.DEPARTMENT_MANAGER || role === Role.OPERATIONS_MANAGER) return { employee: { managerId: employeeId ?? "__none__" } };
+  return {};
+}
+
 router.get("/", async (req, res) => {
   const search = typeof req.query.search === "string" ? req.query.search : undefined;
-  const ownOnly = req.user?.role === Role.EMPLOYEE;
   const resignations = await prisma.resignationRequest.findMany({
     where: {
       archivedAt: null,
-      ...(ownOnly ? { employeeId: req.user?.employeeId ?? "" } : {}),
+      ...employeeScopedWhere(req.user?.role as Role | undefined, req.user?.employeeId),
       ...(search ? { OR: [{ requestNumber: { contains: search, mode: "insensitive" } }, { resignationReason: { contains: search, mode: "insensitive" } }] } : {})
     },
     include: { employee: { include: { department: true, manager: true } }, clearanceItems: true, finalSettlement: true },

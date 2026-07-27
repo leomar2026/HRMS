@@ -98,6 +98,10 @@ async function buildDashboard(req: Request) {
   const totalEmployees = employees.length;
   const activeEmployees = employees.filter((employee) => employee.status === "ACTIVE").length;
   const pendingLeaves = leaveRequests.filter((request) => request.status === "PENDING").length;
+  const employeesWithoutReportingManager = employees.filter((employee) => employee.status === "ACTIVE" && !employee.managerId).length;
+  const departmentsWithoutReportingManager = departments.filter((department) => department.status === "ACTIVE" && !department.defaultReportingManagerId).length;
+  const departmentsWithoutDepartmentHead = departments.filter((department) => department.status === "ACTIVE" && !department.departmentHeadId).length;
+  const pendingWorkflowMissingApprover = leaveRequests.filter((request) => request.status === "PENDING" && String(request.workflowStage).includes("MANAGER") && !request.managerId).length;
   const pendingWorkflow = <T extends { status: unknown }>(records: T[]) => records.filter((record) => !["APPROVED", "REJECTED", "CANCELLED", "PUBLISHED", "COMPLETED"].includes(String(record.status))).length;
   const expiringIqama = employees.filter((employee) => employee.iqamaExpiryDate && employee.iqamaExpiryDate >= today && employee.iqamaExpiryDate <= in60).length;
   const expiringPassport = employees.filter((employee) => employee.passportExpiryDate && employee.passportExpiryDate >= today && employee.passportExpiryDate <= in60).length;
@@ -172,7 +176,11 @@ async function buildDashboard(req: Request) {
       { label: "Employees with missing documents", count: Math.max(totalEmployees - documentCount, 0), href: "/employee-document-expiry" },
       { label: "Negative leave balance", count: employees.filter((employee) => employee.leaveBalance < 0).length, href: "/leave-balance-upload" },
       { label: "Pending payroll publish", count: canSeePayroll(role) ? payrollRuns.filter((run) => String(run.status) !== "PUBLISHED").length : 0, href: "/payroll" },
-      { label: "Unmatched biometric logs", count: 0, href: "/biometric-logs" }
+      { label: "Unmatched biometric logs", count: 0, href: "/biometric-logs" },
+      { label: "Employees without Reporting Manager", count: employeesWithoutReportingManager, href: "/reports?report=employees-without-reporting-manager" },
+      { label: "Departments without Reporting Manager", count: departmentsWithoutReportingManager, href: "/department-reporting" },
+      { label: "Departments without Department Head", count: departmentsWithoutDepartmentHead, href: "/department-reporting" },
+      { label: "Pending workflow requests with missing approver", count: pendingWorkflowMissingApprover, href: "/reports?report=workflow-approver-mapping" }
     ],
     recentActivities: auditLogs.map((log) => ({ action: log.action, user: log.userId ?? "System", target: `${log.entity}${log.entityId ? ` ${log.entityId}` : ""}`, createdAt: log.createdAt })),
     pendingApprovals: pendingApprovals.map((approval) => ({ ...approval, agingDays: Math.max(0, Math.floor((Date.now() - approval.submittedDate.getTime()) / 86400000)) })),

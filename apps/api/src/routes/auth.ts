@@ -19,7 +19,7 @@ const previewEmployeeStatusPath = path.join(process.cwd(), ".preview", "employee
 const loginSchema = z.object({
   loginId: z.string().min(2).optional(),
   email: z.string().optional(),
-  password: z.string().min(8),
+  password: z.string().min(4),
   rememberMe: z.boolean().optional()
 });
 
@@ -31,14 +31,14 @@ const resetPasswordSchema = z.object({
 });
 const firstTimeStartSchema = z.object({
   employeeCode: z.string().min(2),
-  contact: z.string().min(3),
-  verification: z.string().min(4).max(20)
+  contact: z.string().min(3).optional(),
+  verification: z.string().min(4).max(20).optional()
 });
 const firstTimeCompleteSchema = z.object({
   employeeCode: z.string().min(2),
-  otp: z.string().min(4),
-  password: z.string().min(8),
-  confirmPassword: z.string().min(8)
+  otp: z.string().min(4).optional(),
+  password: z.string().min(4),
+  confirmPassword: z.string().min(4)
 });
 const adminResetSchema = z.object({
   userId: z.string(),
@@ -47,9 +47,9 @@ const adminResetSchema = z.object({
   reason: z.string().optional()
 });
 const changePasswordSchema = z.object({
-  currentPassword: z.string().min(8),
-  newPassword: z.string().min(8),
-  confirmPassword: z.string().min(8)
+  currentPassword: z.string().min(1, "Current password is required"),
+  newPassword: z.string().min(4),
+  confirmPassword: z.string().min(4)
 });
 const portalStatusSchema = z.object({ userId: z.string(), portalStatus: z.enum(["PENDING_FIRST_LOGIN", "ACTIVE", "PASSWORD_RESET_REQUIRED", "LOCKED", "DISABLED", "ARCHIVED"]) });
 
@@ -93,14 +93,21 @@ function dashboardForRole(role: Role) {
   return "/dashboard";
 }
 
+type PreviewEmployeeAccess = { role?: string; portalStatus?: string; passwordHash?: string };
+
 function readPreviewEmployeeStatusOverrides() {
   try {
     if (!fs.existsSync(previewEmployeeStatusPath)) return {};
     const parsed = JSON.parse(fs.readFileSync(previewEmployeeStatusPath, "utf8"));
-    return parsed && typeof parsed === "object" ? parsed as Record<string, { role?: string; portalStatus?: string }> : {};
+    return parsed && typeof parsed === "object" ? parsed as Record<string, PreviewEmployeeAccess> : {};
   } catch {
     return {};
   }
+}
+
+function writePreviewEmployeeStatusOverrides(records: Record<string, PreviewEmployeeAccess>) {
+  fs.mkdirSync(path.dirname(previewEmployeeStatusPath), { recursive: true });
+  fs.writeFileSync(previewEmployeeStatusPath, JSON.stringify(records, null, 2), "utf8");
 }
 
 function previewRole(value: unknown, fallback: Role) {
@@ -135,6 +142,27 @@ function previewImportedEmployeeLogin(loginId: string) {
   }
 }
 
+function previewImportedEmployees() {
+  try {
+    if (!fs.existsSync(previewImportedEmployeesPath)) return [];
+    const parsed = JSON.parse(fs.readFileSync(previewImportedEmployeesPath, "utf8"));
+    if (Array.isArray(parsed)) return parsed as Array<Record<string, unknown>>;
+    if (parsed && typeof parsed === "object") return [parsed as Record<string, unknown>];
+    return [];
+  } catch {
+    return [];
+  }
+}
+
+async function previewPasswordMatches(record: Record<string, unknown>, password: string) {
+  const overrides = readPreviewEmployeeStatusOverrides();
+  const id = String(record.id ?? "");
+  const code = String(record.employeeCode ?? "");
+  const override = overrides[id] ?? overrides[code];
+  if (override?.passwordHash) return bcrypt.compare(password, override.passwordHash);
+  return password === code || password === "Employee@123";
+}
+
 router.post("/login", async (req, res, next) => {
   try {
     const body = loginSchema.parse(req.body);
@@ -145,19 +173,22 @@ router.post("/login", async (req, res, next) => {
       return res.json({ token, user, redirectTo: "/dashboard" });
     }
 
-    const previewImportedEmployee = env.HRMS_PREVIEW_MODE && body.password === "Employee@123" ? previewImportedEmployeeLogin(loginId) : null;
+    const previewImportedEmployeeCandidate = env.HRMS_PREVIEW_MODE ? previewImportedEmployeeLogin(loginId) : null;
+    const previewImportedEmployee = previewImportedEmployeeCandidate && await previewPasswordMatches(previewImportedEmployeeCandidate, body.password) ? previewImportedEmployeeCandidate : null;
     if (previewImportedEmployee) {
       const employeeCode = String(previewImportedEmployee.employeeCode ?? loginId);
       const access = previewAccessForEmployee(previewImportedEmployee, Role.EMPLOYEE);
       if (["DISABLED", "ARCHIVED"].includes(access.portalStatus)) throw new AppError(403, `Portal account status is ${access.portalStatus}`);
+      const mustChangePassword = ["PENDING_FIRST_LOGIN", "PASSWORD_RESET_REQUIRED"].includes(access.portalStatus);
       const user = {
         id: `preview-user-${employeeCode}`,
         email: String(previewImportedEmployee.email ?? previewImportedEmployee.companyEmail ?? `${employeeCode}@company.local`),
         role: access.role,
-        employeeId: String(previewImportedEmployee.id ?? `preview-${employeeCode}`)
+        employeeId: String(previewImportedEmployee.id ?? `preview-${employeeCode}`),
+        passwordChangeRequired: mustChangePassword
       };
-      const token = signAccessToken({ sub: user.id, email: user.email, role: user.role, employeeId: user.employeeId });
-      return res.json({ token, user, redirectTo: dashboardForRole(access.role) });
+      const token = signAccessToken({ sub: user.id, email: user.email, role: user.role, employeeId: user.employeeId, passwordChangeRequired: mustChangePassword });
+      return res.json({ token, user, redirectTo: mustChangePassword ? "/change-password" : dashboardForRole(access.role), forcePasswordChange: mustChangePassword });
     }
 
     if (env.HRMS_PREVIEW_MODE && ["EMP-002", "employee@company.com"].includes(loginId) && body.password === "Employee@123") {
@@ -182,6 +213,10 @@ router.post("/login", async (req, res, next) => {
       const user = { id: "preview-om-user", email: "om@company.com", role: access.role, employeeId: "preview-om-1" };
       const token = signAccessToken({ sub: user.id, email: user.email, role: user.role, employeeId: user.employeeId });
       return res.json({ token, user, redirectTo: dashboardForRole(access.role) });
+    }
+
+    if (env.HRMS_PREVIEW_MODE) {
+      throw new AppError(401, "Invalid Employee ID or password.");
     }
 
     const user = loginId.includes("@")
@@ -224,19 +259,20 @@ router.post("/login", async (req, res, next) => {
       }
     });
 
+    const mustChangePassword = user.forcePasswordChange || user.firstLoginRequired || user.passwordResetRequired || ["PENDING_FIRST_LOGIN", "PASSWORD_RESET_REQUIRED"].includes(user.portalStatus);
     const token = signAccessToken({
       sub: user.id,
       email: user.email,
       role: user.role,
       employeeId: user.employeeId,
-      sessionId
+      sessionId,
+      passwordChangeRequired: mustChangePassword
     });
 
     await prisma.user.update({ where: { id: user.id }, data: { failedLoginAttempts: 0, lockedUntil: null } });
-    req.user = { id: user.id, email: user.email, role: user.role, employeeId: user.employeeId, sessionId };
+    req.user = { id: user.id, email: user.email, role: user.role, employeeId: user.employeeId, sessionId, passwordChangeRequired: mustChangePassword };
     await logLogin(req, loginId, "SUCCESS", undefined, user.id);
     await audit(req, "LOGIN", "User", user.id);
-    const mustChangePassword = user.forcePasswordChange || user.firstLoginRequired || user.passwordResetRequired || ["PENDING_FIRST_LOGIN", "PASSWORD_RESET_REQUIRED"].includes(user.portalStatus);
     res.json({
       token,
       user: req.user,
@@ -268,6 +304,30 @@ router.post("/change-password", requireAuth, async (req, res, next) => {
   try {
     const body = changePasswordSchema.parse(req.body);
     if (body.newPassword !== body.confirmPassword) throw new AppError(400, "Password confirmation does not match");
+    if (env.HRMS_PREVIEW_MODE && String(req.user?.id ?? "").startsWith("preview-user-")) {
+      const employees = previewImportedEmployees();
+      const employee = employees.find((record) => String(record.id ?? "") === String(req.user?.employeeId) || `preview-user-${String(record.employeeCode ?? "")}` === String(req.user?.id));
+      if (!employee) throw new AppError(404, "User not found");
+      if (!(await previewPasswordMatches(employee, body.currentPassword))) throw new AppError(400, "Current password is incorrect");
+      if (body.newPassword === body.currentPassword) throw new AppError(400, "New password cannot match the current password");
+      assertStrongPassword(body.newPassword, String(employee.employeeCode ?? ""));
+      const employeeCode = String(employee.employeeCode ?? "");
+      const employeeId = String(employee.id ?? "");
+      const overrides = readPreviewEmployeeStatusOverrides();
+      const previous = overrides[employeeId] ?? overrides[employeeCode] ?? previewAccessForEmployee(employee, Role.EMPLOYEE);
+      const updated = {
+        ...previous,
+        passwordHash: await bcrypt.hash(body.newPassword, env.BCRYPT_ROUNDS),
+        portalStatus: "ACTIVE"
+      };
+      if (employeeId) overrides[employeeId] = updated;
+      if (employeeCode) overrides[employeeCode] = updated;
+      writePreviewEmployeeStatusOverrides(overrides);
+      const role = previewRole(updated.role, Role.EMPLOYEE);
+      const email = String(employee.email ?? employee.companyEmail ?? `${employeeCode}@company.local`);
+      const token = signAccessToken({ sub: String(req.user?.id), email, role, employeeId, passwordChangeRequired: false });
+      return res.json({ ok: true, token, redirectTo: dashboardForRole(role) });
+    }
     const user = await prisma.user.findUnique({ where: { id: String(req.user?.id) }, include: { employee: true } });
     if (!user) throw new AppError(404, "User not found");
     if (!(await bcrypt.compare(body.currentPassword, user.passwordHash))) {
@@ -296,7 +356,15 @@ router.post("/change-password", requireAuth, async (req, res, next) => {
       });
     });
     await audit(req, "PASSWORD_CHANGED", "User", user.id);
-    res.json({ ok: true, redirectTo: dashboardForRole(user.role) });
+    const token = signAccessToken({
+      sub: user.id,
+      email: user.email,
+      role: user.role,
+      employeeId: user.employeeId,
+      sessionId: req.user?.sessionId,
+      passwordChangeRequired: false
+    });
+    res.json({ ok: true, token, redirectTo: dashboardForRole(user.role) });
   } catch (error) {
     next(error);
   }
@@ -309,6 +377,7 @@ router.get("/me", requireAuth, async (req, res) => {
       email: req.user?.email,
       role: req.user?.role,
       employeeId: req.user?.employeeId,
+      passwordChangeRequired: req.user?.passwordChangeRequired,
       employee: req.user?.employeeId
         ? {
             id: req.user.employeeId,
@@ -328,6 +397,10 @@ router.get("/me", requireAuth, async (req, res) => {
       email: true,
       role: true,
       employeeId: true,
+      portalStatus: true,
+      firstLoginRequired: true,
+      passwordResetRequired: true,
+      forcePasswordChange: true,
       employee: {
         select: {
           id: true,
@@ -339,7 +412,10 @@ router.get("/me", requireAuth, async (req, res) => {
       }
     }
   });
-  res.json(user ?? req.user);
+  res.json(user ? {
+    ...user,
+    passwordChangeRequired: user.firstLoginRequired || user.passwordResetRequired || user.forcePasswordChange || ["PENDING_FIRST_LOGIN", "PASSWORD_RESET_REQUIRED"].includes(user.portalStatus)
+  } : req.user);
 });
 
 router.post("/forgot-password", async (req, res, next) => {
@@ -374,26 +450,16 @@ router.post("/first-time/start", async (req, res, next) => {
   try {
     const body = firstTimeStartSchema.parse(req.body);
     if (env.HRMS_PREVIEW_MODE) {
-      return res.json({ ok: true, message: "OTP generated for preview.", otpPreview: "123456" });
+      const employee = previewImportedEmployeeLogin(body.employeeCode);
+      if (!employee) throw new AppError(404, "Employee account not found");
+      const access = previewAccessForEmployee(employee, Role.EMPLOYEE);
+      if (["DISABLED", "ARCHIVED"].includes(access.portalStatus)) throw new AppError(403, `Portal account status is ${access.portalStatus}`);
+      return res.json({ ok: true, message: "Employee ID verified. Create your new password." });
     }
     const user = await prisma.user.findFirst({ where: { employee: { employeeCode: body.employeeCode } }, include: { employee: true } });
     if (!user || !user.employee) throw new AppError(404, "Employee account not found");
-    if (user.portalStatus !== "PENDING_FIRST_LOGIN" && !user.forcePasswordChange) throw new AppError(400, "Account is not pending first-time setup");
-    const registeredContacts = [user.email, user.employee.email, user.employee.companyEmail, user.employee.phone].filter(Boolean);
-    if (!registeredContacts.includes(body.contact)) throw new AppError(400, "Verification contact does not match employee record");
-    const lastFour = user.employee.nationalId.slice(-4);
-    if (body.verification !== lastFour) throw new AppError(400, "Additional verification failed");
-    const otp = String(crypto.randomInt(100000, 999999));
-    await prisma.portalOtp.create({
-      data: {
-        userId: user.id,
-        purpose: "FIRST_TIME_LOGIN",
-        otpHash: tokenHash(otp),
-        expiresAt: new Date(Date.now() + env.PASSWORD_RESET_EXPIRY_MINUTES * 60 * 1000)
-      }
-    });
-    await audit({ ...req, user: { id: user.id, email: user.email, role: user.role, employeeId: user.employeeId } } as typeof req, "FIRST_TIME_OTP_CREATED", "User", user.id);
-    res.json({ ok: true, message: "OTP sent to registered contact.", otpPreview: env.HRMS_PREVIEW_MODE ? otp : undefined });
+    if (["DISABLED", "ARCHIVED"].includes(user.portalStatus)) throw new AppError(403, `Portal account status is ${user.portalStatus}`);
+    res.json({ ok: true, message: "Employee ID verified. Create your new password." });
   } catch (error) {
     next(error);
   }
@@ -403,17 +469,30 @@ router.post("/first-time/complete", async (req, res, next) => {
   try {
     const body = firstTimeCompleteSchema.parse(req.body);
     if (body.password !== body.confirmPassword) throw new AppError(400, "Password confirmation does not match");
-    assertStrongPassword(body.password, body.employeeCode);
     if (env.HRMS_PREVIEW_MODE) {
-      return res.json({ ok: true, redirectTo: "/employee/dashboard" });
+      const employee = previewImportedEmployeeLogin(body.employeeCode);
+      if (!employee) throw new AppError(404, "Employee account not found");
+      const access = previewAccessForEmployee(employee, Role.EMPLOYEE);
+      if (["DISABLED", "ARCHIVED"].includes(access.portalStatus)) throw new AppError(403, `Portal account status is ${access.portalStatus}`);
+      const employeeCode = String(employee.employeeCode ?? body.employeeCode);
+      const employeeId = String(employee.id ?? "");
+      const email = String(employee.email ?? employee.companyEmail ?? `${employeeCode}@company.local`);
+      const overrides = readPreviewEmployeeStatusOverrides();
+      const updated = {
+        ...access,
+        passwordHash: await bcrypt.hash(body.password, env.BCRYPT_ROUNDS),
+        portalStatus: "ACTIVE"
+      };
+      if (employeeId) overrides[employeeId] = updated;
+      if (employeeCode) overrides[employeeCode] = updated;
+      writePreviewEmployeeStatusOverrides(overrides);
+      const user = { id: `preview-user-${employeeCode}`, email, role: updated.role, employeeId };
+      const token = signAccessToken({ sub: user.id, email: user.email, role: user.role, employeeId: user.employeeId });
+      return res.json({ ok: true, token, user, redirectTo: dashboardForRole(updated.role) });
     }
     const user = await prisma.user.findFirst({ where: { employee: { employeeCode: body.employeeCode } }, include: { employee: true } });
     if (!user || !user.employee) throw new AppError(404, "Employee account not found");
-    const otp = await prisma.portalOtp.findFirst({
-      where: { userId: user.id, purpose: "FIRST_TIME_LOGIN", usedAt: null },
-      orderBy: { createdAt: "desc" }
-    });
-    if (!otp || otp.expiresAt < new Date() || otp.otpHash !== tokenHash(body.otp)) throw new AppError(400, "OTP is invalid or expired");
+    if (["DISABLED", "ARCHIVED"].includes(user.portalStatus)) throw new AppError(403, `Portal account status is ${user.portalStatus}`);
     await prisma.$transaction(async (tx) => {
       await tx.user.update({
         where: { id: user.id },
@@ -428,11 +507,11 @@ router.post("/first-time/complete", async (req, res, next) => {
           lockedUntil: null
         }
       });
-      await tx.portalOtp.update({ where: { id: otp.id }, data: { usedAt: new Date() } });
     });
     req.user = { id: user.id, email: user.email, role: user.role, employeeId: user.employeeId };
     await audit(req, "FIRST_TIME_ACCOUNT_ACTIVATED", "User", user.id, { employeeCode: body.employeeCode });
-    res.json({ ok: true, redirectTo: "/employee/dashboard" });
+    const token = signAccessToken({ sub: user.id, email: user.email, role: user.role, employeeId: user.employeeId });
+    res.json({ ok: true, token, user: { id: user.id, email: user.email, role: user.role, employeeId: user.employeeId }, redirectTo: dashboardForRole(user.role) });
   } catch (error) {
     next(error);
   }
@@ -500,9 +579,28 @@ router.delete("/sessions/:id", async (req, res, next) => {
 router.get("/admin/portal-accounts", requireAuth, requireRoles(Role.ADMIN, Role.SUPER_ADMIN), async (req, res, next) => {
   try {
     if (env.HRMS_PREVIEW_MODE) {
-      return res.json([
-        { id: "preview-employee-user", email: "employee@company.com", role: "EMPLOYEE", portalStatus: "ACTIVE", failedLoginAttempts: 0, lockedUntil: null, employee: { employeeCode: "EMP-002", firstName: "Employee", lastName: "User", branch: "Riyadh", status: "ACTIVE", department: { name: "Operations" } } },
-        { id: "preview-manager-user", email: "manager@company.com", role: "DEPARTMENT_MANAGER", portalStatus: "ACTIVE", failedLoginAttempts: 0, lockedUntil: null, employee: { employeeCode: "EMP-010", firstName: "Manager", lastName: "User", branch: "Riyadh", status: "ACTIVE", department: { name: "Operations" } } }
+      const accounts = previewImportedEmployees().filter((employee) => String(employee.employeeCode ?? "") === "10075").map((employee) => {
+        const access = previewAccessForEmployee(employee, Role.EMPLOYEE);
+        const user = (employee.user as Record<string, unknown> | undefined) ?? {};
+        return {
+          id: String(user.id ?? `preview-user-${employee.employeeCode}`),
+          email: String(employee.email ?? employee.companyEmail ?? ""),
+          role: access.role,
+          portalStatus: access.portalStatus,
+          failedLoginAttempts: 0,
+          lockedUntil: null,
+          employee: {
+            employeeCode: String(employee.employeeCode ?? ""),
+            firstName: String(employee.firstName ?? ""),
+            lastName: String(employee.lastName ?? ""),
+            branch: String(employee.branch ?? ""),
+            status: String(employee.status ?? "ACTIVE"),
+            department: employee.department ?? { name: "" }
+          }
+        };
+      });
+      return res.json(accounts.length ? accounts : [
+        { id: "preview-user-10075", email: "leomarmontesa2017@gmail.com", role: "SUPER_ADMIN", portalStatus: "ACTIVE", failedLoginAttempts: 0, lockedUntil: null, employee: { employeeCode: "10075", firstName: "Leomar", lastName: "Montesa", branch: "Jeddah Branch", status: "ACTIVE", department: { name: "Power department" } } }
       ]);
     }
     const search = typeof req.query.search === "string" ? req.query.search : "";

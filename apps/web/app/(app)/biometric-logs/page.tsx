@@ -17,6 +17,12 @@ type RawLog = {
   rawLogReference: string;
   processingStatus: string;
   errorMessage?: string;
+  rawPayload?: {
+    latitude?: number | string;
+    longitude?: number | string;
+    accuracyMeters?: number | string;
+    distanceMeters?: number | string;
+  };
   employee?: { employeeCode: string; firstName: string; lastName: string; department: { name: string } };
 };
 
@@ -32,6 +38,10 @@ type SyncHistory = {
   errorMessage?: string;
   device?: { deviceName: string };
 };
+
+function gpsValue(value: unknown) {
+  return value === undefined || value === null || value === "" ? "-" : String(value);
+}
 
 export default async function BiometricLogsPage() {
   const [logs, history] = await Promise.all([
@@ -49,7 +59,7 @@ export default async function BiometricLogsPage() {
       />
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Device</th><th>Device User ID</th><th>Employee</th><th>Department</th><th>Punch Date</th><th>Punch Time</th><th>Punch Type</th><th>Verification</th><th>Work Code</th><th>Serial</th><th>IP</th><th>Sync Time</th><th>Raw Ref</th><th>Status</th><th>Error</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Device</th><th>Device User ID</th><th>Employee</th><th>Department</th><th>Punch Date</th><th>Punch Time</th><th>Punch Type</th><th>Verification</th><th>GPS Latitude</th><th>GPS Longitude</th><th>GPS Accuracy</th><th>Site Distance</th><th>Work Code</th><th>Serial</th><th>IP</th><th>Sync Time</th><th>Raw Ref</th><th>Status</th><th>Error</th><th>Actions</th></tr></thead>
           <tbody>
             {logs.length ? logs.map((log) => (
               <tr key={log.id}>
@@ -61,6 +71,10 @@ export default async function BiometricLogsPage() {
                 <td>{new Date(log.punchTime).toLocaleTimeString()}</td>
                 <td>{log.punchType}</td>
                 <td>{log.verificationType ?? "-"}</td>
+                <td>{gpsValue(log.rawPayload?.latitude)}</td>
+                <td>{gpsValue(log.rawPayload?.longitude)}</td>
+                <td>{gpsValue(log.rawPayload?.accuracyMeters)}</td>
+                <td>{gpsValue(log.rawPayload?.distanceMeters)}</td>
                 <td>{log.workCode ?? "-"}</td>
                 <td>{log.deviceSerialNumber ?? "-"}</td>
                 <td>{log.deviceIp ?? "-"}</td>
@@ -70,7 +84,7 @@ export default async function BiometricLogsPage() {
                 <td>{log.errorMessage ?? "-"}</td>
                 <td><RowActionMenu actions={[{ label: "Map employee", href: "/biometric-mapping" }, { label: "View attendance", href: "/biometric-attendance" }]} /></td>
               </tr>
-            )) : <tr><td colSpan={16}>No records found.</td></tr>}
+            )) : <tr><td colSpan={20}>No records found.</td></tr>}
           </tbody>
         </table>
       </div>

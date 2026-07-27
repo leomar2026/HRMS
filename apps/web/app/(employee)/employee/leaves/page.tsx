@@ -59,6 +59,7 @@ export default async function EmployeeLeavesPage() {
                 </td>
               </tr>
             ))}
+            {leaves.length === 0 ? <tr><td colSpan={10}>No leave requests found.</td></tr> : null}
           </tbody>
         </table>
       </div>

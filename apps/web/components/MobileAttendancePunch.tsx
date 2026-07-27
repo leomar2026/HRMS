@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { Fingerprint, LocateFixed, LogIn, LogOut, MapPin, ShieldCheck } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fingerprint, LogIn, LogOut, MapPin, ShieldCheck } from "lucide-react";
 
 type MobileSite = {
   id: string;
@@ -33,7 +33,7 @@ async function sendPunch(body: Record<string, unknown>) {
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.message ?? "Unable to record mobile attendance.");
-  return data as { message: string; employeeName: string; siteName: string; punchTime: string; distanceMeters: number; timezone: string };
+  return data as { message: string; employeeCode: string; employeeName: string; siteName: string; punchTime: string; distanceMeters: number; timezone: string; warning?: string };
 }
 
 function randomChallenge() {
@@ -52,20 +52,7 @@ export function MobileAttendancePunch({ config, employeeMode = false }: { config
   const [busy, setBusy] = useState(false);
   const [now, setNow] = useState<Date | null>(null);
 
-  useEffect(() => {
-    setNow(new Date());
-    const timer = window.setInterval(() => setNow(new Date()), 1000);
-    return () => window.clearInterval(timer);
-  }, []);
-
-  const localTime = useMemo(() => now ? new Intl.DateTimeFormat("en-SA", {
-    timeZone: timezone,
-    dateStyle: "medium",
-    timeStyle: "medium",
-    hour12: false
-  }).format(now) : "--", [now, timezone]);
-
-  function getGps() {
+  const getGps = useCallback(() => {
     setMessage("Requesting GPS location...");
     if (!navigator.geolocation) {
       setMessage("GPS is not available on this device.");
@@ -83,7 +70,24 @@ export function MobileAttendancePunch({ config, employeeMode = false }: { config
       (error) => setMessage(error.message || "GPS permission is required before time in/out."),
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
     );
-  }
+  }, []);
+
+  useEffect(() => {
+    setNow(new Date());
+    const timer = window.setInterval(() => setNow(new Date()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    getGps();
+  }, [getGps]);
+
+  const localTime = useMemo(() => now ? new Intl.DateTimeFormat("en-SA", {
+    timeZone: timezone,
+    dateStyle: "medium",
+    timeStyle: "medium",
+    hour12: false
+  }).format(now) : "--", [now, timezone]);
 
   async function verifyBiometric() {
     setMessage("Checking this phone biometric capability...");
@@ -115,7 +119,7 @@ export function MobileAttendancePunch({ config, employeeMode = false }: { config
 
   async function submit() {
     if (!position) {
-      setMessage("GPS is mandatory. Capture GPS before submitting.");
+      setMessage("GPS is mandatory. Allow location permission before submitting.");
       return;
     }
     if (!employeeMode && !employeeIdentifier.trim()) {
@@ -135,7 +139,7 @@ export function MobileAttendancePunch({ config, employeeMode = false }: { config
         timezone,
         clientTime: new Date().toISOString()
       });
-      setMessage(`${result.message} ${result.employeeName} at ${result.siteName}. Distance: ${result.distanceMeters}m.`);
+      setMessage(`${result.message} ${result.employeeCode} - ${result.employeeName} at ${result.siteName}. Distance: ${result.distanceMeters}m.${result.warning ? ` ${result.warning}` : ""}`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Unable to record attendance.");
     } finally {
@@ -149,6 +153,7 @@ export function MobileAttendancePunch({ config, employeeMode = false }: { config
         <div>
           <p className="muted">KSA/site time</p>
           <h2>{localTime}</h2>
+          {!position ? <p className="muted">Please allow location access when your device asks for GPS permission.</p> : null}
         </div>
         {!employeeMode ? (
           <>
@@ -172,14 +177,13 @@ export function MobileAttendancePunch({ config, employeeMode = false }: { config
           <button className={punchType === "CHECK_OUT" ? "button" : "button secondary"} type="button" onClick={() => setPunchType("CHECK_OUT")}><LogOut size={16} /> Time Out</button>
         </div>
         <div className="actions">
-          <button className="button secondary" type="button" onClick={getGps}><LocateFixed size={16} /> Capture GPS</button>
           <button className="button secondary" type="button" onClick={verifyBiometric}><Fingerprint size={16} /> Phone Biometric</button>
         </div>
         <button className="button" type="button" disabled={busy} onClick={submit}>
           <ShieldCheck size={16} /> Submit {punchType === "CHECK_IN" ? "Time In" : "Time Out"}
         </button>
         {message ? <p className={message.includes("Unable") || message.includes("outside") || message.includes("mandatory") || message.includes("not") || message.includes("required") ? "status danger" : "status"}>{message}</p> : null}
-        {employeeMode ? <p className="muted">GPS must be captured before submitting. Your employee profile is used automatically after login.</p> : null}
+        {employeeMode ? <p className="muted">GPS is requested automatically when this page opens. Your employee profile is used automatically after login.</p> : null}
       </section>
 
       {!employeeMode ? <section className="panel">

@@ -19,7 +19,7 @@ export default async function EmployeeTicketRequestsPage() {
           <thead><tr><th>Ticket Request No.</th><th>Linked Leave</th><th>Destination</th><th>Departure</th><th>Return</th><th>Ticket Type</th><th>Estimated Cost</th><th>Status</th><th>Approver</th><th>Booking Ref</th><th>Actions</th></tr></thead>
           <tbody>
             {tickets.map((ticket) => <tr key={ticket.id}><td>{ticket.requestNumber}</td><td>{ticket.leaveRequest.requestNumber}</td><td>{ticket.arrivalCity}, {ticket.arrivalCountry}</td><td>{new Date(ticket.preferredDepartureDate).toLocaleDateString()}</td><td>{ticket.preferredReturnDate ? new Date(ticket.preferredReturnDate).toLocaleDateString() : "-"}</td><td>{ticket.ticketType}</td><td>{ticket.estimatedTicketCost}</td><td><span className="status">{ticket.status}</span></td><td>{ticket.currentApprover ?? "-"}</td><td>{ticket.bookingReference ?? "-"}</td><td><PrintDocumentActions module="ticket-requests" id={ticket.id} /><WorkflowDecisionButtons modulePath="ticket-requests" id={ticket.id} /></td></tr>)}
-            {tickets.length === 0 ? <tr><td colSpan={11}>No records found.</td></tr> : null}
+            {tickets.length === 0 ? <tr><td colSpan={11}>No ticket requests found for this employee.</td></tr> : null}
           </tbody>
         </table>
       </div>

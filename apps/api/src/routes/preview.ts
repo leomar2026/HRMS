@@ -80,7 +80,9 @@ function readPreviewImportedEmployees() {
   try {
     if (!fs.existsSync(previewImportedEmployeesPath)) return [];
     const parsed = JSON.parse(fs.readFileSync(previewImportedEmployeesPath, "utf8"));
-    return Array.isArray(parsed) ? parsed as Array<Record<string, unknown>> : [];
+    if (Array.isArray(parsed)) return parsed as Array<Record<string, unknown>>;
+    if (parsed && typeof parsed === "object") return [parsed as Record<string, unknown>];
+    return [];
   } catch {
     return [];
   }
@@ -92,6 +94,7 @@ function writePreviewImportedEmployees(records: Array<Record<string, unknown>>) 
 }
 
 const previewImportedEmployees: Array<Record<string, unknown>> = readPreviewImportedEmployees();
+const previewPrimaryEmployeeCode = "10075";
 
 function readPreviewEmployeeStatusOverrides() {
   try {
@@ -113,7 +116,8 @@ const previewEmployeeStatusOverrides = readPreviewEmployeeStatusOverrides();
 function withPreviewUserStatus<T extends Record<string, unknown>>(record: T) {
   const id = String(record.id ?? "");
   const code = String(record.employeeCode ?? "");
-  const override = previewEmployeeStatusOverrides[id] ?? previewEmployeeStatusOverrides[code];
+  const latestOverrides = readPreviewEmployeeStatusOverrides();
+  const override = latestOverrides[id] ?? latestOverrides[code] ?? previewEmployeeStatusOverrides[id] ?? previewEmployeeStatusOverrides[code];
   if (!override) return record;
   const user = (record.user as Record<string, unknown> | undefined) ?? {};
   return {
@@ -127,7 +131,46 @@ function withPreviewUserStatus<T extends Record<string, unknown>>(record: T) {
 }
 
 function previewEmployeeRecords() {
-  return [employee, selfServiceEmployee, managerEmployee, omEmployee, ...previewImportedEmployees] as Array<Record<string, unknown>>;
+  const visibleImported = previewImportedEmployees.filter((record) => {
+    const code = String(record.employeeCode ?? "");
+    return (code === previewPrimaryEmployeeCode || String(record.previewCreated ?? "") === "true") && !record.archivedAt && String(record.status ?? "ACTIVE") !== "ARCHIVED";
+  });
+  return visibleImported.length ? visibleImported as Array<Record<string, unknown>> : [selfServiceEmployee] as Array<Record<string, unknown>>;
+}
+
+function previewArchivedEmployeeRecords() {
+  return previewImportedEmployees.filter((record) => record.archivedAt || String(record.status ?? "") === "ARCHIVED");
+}
+
+function previewPrimaryEmployee() {
+  return previewEmployeeRecords()[0] ?? selfServiceEmployee;
+}
+
+const previewDepartments = [
+  { id: "preview-dept-1", code: "HR", name: "Human Resources", _count: { employees: 1 } },
+  { id: "preview-dept-2", code: "FIN", name: "Finance", _count: { employees: 0 } },
+  { id: "preview-dept-3", code: "OPS", name: "Operations", _count: { employees: 0 } },
+  { id: "preview-dept-4", code: "PPS", name: "Power Protection - Pre Sales", _count: { employees: 0 } },
+  { id: "preview-dept-5", code: "PAS", name: "Power Protection - After Sales", _count: { employees: 0 } },
+  { id: "preview-dept-6", code: "LC", name: "Low Current", _count: { employees: 0 } },
+  { id: "preview-dept-7", code: "SAL", name: "Sales", _count: { employees: 0 } },
+  { id: "preview-dept-8", code: "IT", name: "IT", _count: { employees: 0 } },
+  { id: "preview-dept-9", code: "ADM", name: "Administrative", _count: { employees: 0 } }
+];
+
+function previewDepartmentForId(departmentId: unknown, previousDepartment?: Record<string, unknown>) {
+  const id = String(departmentId ?? "").trim();
+  const knownDepartment = previewDepartments.find((department) => department.id === id || department.code === id || department.name === id);
+  if (knownDepartment) return knownDepartment;
+  if (previousDepartment && String(previousDepartment.id ?? "") === id) {
+    return {
+      id,
+      name: String(previousDepartment.name ?? "Preview Department"),
+      code: String(previousDepartment.code ?? id)
+    };
+  }
+  const name = id.replace(/^preview-dept-/, "").replace(/[-_]+/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase()) || "Preview Department";
+  return { id, name, code: String(previousDepartment?.code ?? (id || "DEPT")) };
 }
 
 function previewDepartmentFrom(record: Record<string, unknown>) {
@@ -158,6 +201,7 @@ function normalizePreviewEmployee(record: Record<string, unknown>) {
   const current = withPreviewUserStatus(record);
   const name = previewEmployeeName(current);
   const [firstName, ...lastNameParts] = name.split(/\s+/);
+  const department = previewDepartmentFrom(current);
   return {
     id: String(current.id ?? `preview-${String(current.employeeCode ?? "employee")}`),
     employeeCode: String(current.employeeCode ?? ""),
@@ -194,7 +238,13 @@ function normalizePreviewEmployee(record: Record<string, unknown>) {
     profilePhotoUploadedBy: current.profilePhotoUploadedBy,
     profilePhotoUploadedAt: current.profilePhotoUploadedAt,
     profilePhotoStatus: String(current.profilePhotoStatus ?? "ACTIVE"),
-    department: previewDepartmentFrom(current),
+    departmentId: String(current.departmentId ?? department.id),
+    managerId: String(current.managerId ?? ""),
+    departmentHeadId: String(current.departmentHeadId ?? ""),
+    omId: String(current.omId ?? ""),
+    hrManagerId: String(current.hrManagerId ?? ""),
+    alternateManagerId: String(current.alternateManagerId ?? ""),
+    department,
     user: current.user,
     documents: current.documents ?? []
   };
@@ -210,7 +260,7 @@ function previewEmployeeForUser(user?: { employeeId?: string | null; email?: str
     const recordEmail = String(record.email ?? record.companyEmail ?? "");
     return id === employeeId || code === employeeId || code === fallbackCode || recordEmail === email;
   });
-  return normalizePreviewEmployee(match ?? selfServiceEmployee);
+  return normalizePreviewEmployee(match ?? previewPrimaryEmployee());
 }
 
 function previewPayrollNumbersForEmployee(record: ReturnType<typeof normalizePreviewEmployee>) {
@@ -383,31 +433,54 @@ function blockEmployeePreviewExport(req: { user?: { role?: string } }, res: { st
 }
 
 previewRouter.get("/employees", (_req, res) => {
-  const items = [employee, { ...selfServiceEmployee, user: { id: "preview-employee-user", role: "EMPLOYEE", portalStatus: "ACTIVE" } }, { ...managerEmployee, user: { id: "preview-manager-user", role: "DEPARTMENT_MANAGER", portalStatus: "ACTIVE" } }, { ...omEmployee, user: { id: "preview-om-user", role: "OPERATIONS_MANAGER", portalStatus: "ACTIVE" } }, ...previewImportedEmployees].map((record) => withPreviewUserStatus(record));
+  const items = previewEmployeeRecords().map((record) => withPreviewUserStatus(record));
+  res.json({ items, total: items.length, page: 1, pageSize: 25 });
+});
+previewRouter.get("/employees/archived", (_req, res) => {
+  const items = previewArchivedEmployeeRecords().map((record) => withPreviewUserStatus(record));
   res.json({ items, total: items.length, page: 1, pageSize: 25 });
 });
 function previewEmployeeById(id: string) {
-  const records = [
-    { ...employee, departmentId: employee.department.id, joiningDate: "2026-01-01T00:00:00.000Z", basicSalary: "12000.00", housingAllowance: "3000.00", transportAllowance: "1000.00", otherAllowance: "0.00", branch: "Riyadh", location: "Head Office", managerId: "", bankName: "Al Rajhi Bank", iban: "SA0380000000608010167519", documents: [] },
-    { ...selfServiceEmployee, departmentId: selfServiceEmployee.department.id, joiningDate: "2026-02-01T00:00:00.000Z", basicSalary: "8000.00", housingAllowance: "2000.00", transportAllowance: "800.00", otherAllowance: "0.00", branch: "Riyadh", location: "Operations", managerId: managerEmployee.id, bankName: "Al Rajhi Bank", iban: "SA0380000000608010167520", documents: [] },
-    { ...managerEmployee, departmentId: managerEmployee.department.id, joiningDate: "2025-06-01T00:00:00.000Z", basicSalary: "15000.00", housingAllowance: "4000.00", transportAllowance: "1200.00", otherAllowance: "0.00", branch: "Riyadh", location: "Operations", managerId: "", documents: [] },
-    { ...omEmployee, departmentId: omEmployee.department.id, joiningDate: "2025-01-01T00:00:00.000Z", basicSalary: "18000.00", housingAllowance: "5000.00", transportAllowance: "1500.00", otherAllowance: "0.00", branch: "Riyadh", location: "Operations", managerId: "", documents: [] }
-  ];
-  const imported = previewImportedEmployees.find((record) => record.id === id || record.employeeCode === id);
-  return withPreviewUserStatus(imported ?? records.find((record) => record.id === id || record.employeeCode === id) ?? records[0]);
+  const records = [...previewEmployeeRecords(), ...previewArchivedEmployeeRecords()];
+  return withPreviewUserStatus(records.find((record) => record.id === id || record.employeeCode === id) ?? previewPrimaryEmployee());
 }
 previewRouter.get("/employees/export.csv", (req, res) => {
   if (blockEmployeePreviewExport(req, res)) return;
   res.header("Content-Type", "text/csv");
   res.attachment("employee-master.csv");
-  res.send("employeeCode,fullName,email,nationalId,department,jobTitle,status,joiningDate\nEMP-001,Admin User,admin@company.sa,1000000001,Human Resources,HRMS Administrator,ACTIVE,2026-01-01\nEMP-002,Employee User,employee@company.com,1000000002,Operations,Operations Specialist,ACTIVE,2026-02-01");
+  const rows = previewEmployeeRecords().map((record) => {
+    const item = normalizePreviewEmployee(record);
+    return [item.employeeCode, item.fullName, item.email, item.nationalId, item.department.name, item.jobTitle, item.status, String(item.joiningDate).slice(0, 10)];
+  });
+  res.send(["employeeCode,fullName,email,nationalId,department,jobTitle,status,joiningDate", ...rows.map((row) => row.map((value) => `"${String(value ?? "").replace(/"/g, "\"\"")}"`).join(","))].join("\n"));
 });
 previewRouter.get("/employees/export.xlsx", async (req, res) => {
   if (blockEmployeePreviewExport(req, res)) return;
-  await xlsxFile(res, "employee-master.xlsx", ["employeeCode", "fullName", "email", "nationalId", "department", "jobTitle", "status", "joiningDate"], [["EMP-001", "Admin User", "admin@company.sa", "1000000001", "Human Resources", "HRMS Administrator", "ACTIVE", "2026-01-01"], ["EMP-002", "Employee User", "employee@company.com", "1000000002", "Operations", "Operations Specialist", "ACTIVE", "2026-02-01"]], "Employees");
+  const rows = previewEmployeeRecords().map((record) => {
+    const item = normalizePreviewEmployee(record);
+    return [item.employeeCode, item.fullName, item.email, item.nationalId, item.department.name, item.jobTitle, item.status, String(item.joiningDate).slice(0, 10)];
+  });
+  await xlsxFile(res, "employee-master.xlsx", ["employeeCode", "fullName", "email", "nationalId", "department", "jobTitle", "status", "joiningDate"], rows, "Employees");
+});
+previewRouter.get("/employees/archived/export.csv", (_req, res) => {
+  res.header("Content-Type", "text/csv");
+  res.attachment("archived-employees.csv");
+  const rows = previewArchivedEmployeeRecords().map((record) => {
+    const item = normalizePreviewEmployee(record);
+    return [item.employeeCode, item.fullName, item.email, item.department.name, item.jobTitle, item.status, String(record.archivedAt ?? "")];
+  });
+  res.send(["employeeCode,fullName,email,department,jobTitle,status,archivedAt", ...rows.map((row) => row.map((value) => `"${String(value ?? "").replace(/"/g, "\"\"")}"`).join(","))].join("\n"));
+});
+previewRouter.get("/employees/archived/print", (_req, res) => {
+  const rows = previewArchivedEmployeeRecords().map((record) => {
+    const item = normalizePreviewEmployee(record);
+    return `<tr><td>${item.employeeCode}</td><td>${item.fullName}</td><td>${item.email}</td><td>${item.department.name}</td><td>${item.jobTitle}</td><td>${item.status}</td><td>${String(record.archivedAt ?? "").slice(0, 10)}</td></tr>`;
+  }).join("");
+  res.header("Content-Type", "text/html");
+  res.send(`<!doctype html><html><head><title>Archived Employees</title><style>body{font-family:Arial;margin:24px;color:#172033}table{width:100%;border-collapse:collapse;font-size:12px}th,td{border:1px solid #dfe4ec;padding:7px;text-align:left}th{background:#f3f5f8}</style></head><body><h1>Archived Employees</h1><table><thead><tr><th>ID</th><th>Name</th><th>Email</th><th>Department</th><th>Job Title</th><th>Status</th><th>Archived</th></tr></thead><tbody>${rows}</tbody></table><script>window.print()</script></body></html>`);
 });
 previewRouter.post("/employees/portal-users/provision-missing", (req, res) => {
-  const records = [employee, selfServiceEmployee, managerEmployee, omEmployee, ...previewImportedEmployees] as Array<Record<string, unknown>>;
+  const records = previewEmployeeRecords();
   let createdCount = 0;
   for (const record of records) {
     const id = String(record.id ?? "");
@@ -421,39 +494,131 @@ previewRouter.post("/employees/portal-users/provision-missing", (req, res) => {
   writePreviewEmployeeStatusOverrides(previewEmployeeStatusOverrides);
   res.json({ message: `Created ${createdCount} portal account(s).`, createdCount, skippedCount: records.length - createdCount });
 });
-previewRouter.post("/employees", (req, res) => res.status(201).json({
-  id: `preview-employee-${Date.now()}`,
-  status: "ACTIVE",
-  leaveBalance: Number(req.body.leaveBalance ?? 21),
-  department: { id: req.body.departmentId, name: "Preview Department" },
-  user: { role: req.body.role ?? "EMPLOYEE", portalStatus: req.body.role === "EMPLOYEE" ? "PENDING_FIRST_LOGIN" : "ACTIVE" },
-  ...req.body
-}));
+previewRouter.post("/employees", (req, res) => {
+  if (!["SUPER_ADMIN", "ADMIN", "HR_MANAGER", "HR_OFFICER", "HR"].includes(String(req.user?.role))) {
+    return res.status(403).json({ message: "Insufficient permissions" });
+  }
+  const requiredFields = ["employeeCode", "nationalId", "firstName", "lastName", "email", "jobTitle", "joiningDate", "departmentId", "basicSalary"];
+  const missingFields = requiredFields.filter((field) => !String(req.body[field] ?? "").trim());
+  if (missingFields.length) {
+    return res.status(400).json({ message: `Missing required fields: ${missingFields.join(", ")}` });
+  }
+  const employeeCode = String(req.body.employeeCode).trim();
+  const duplicate = previewImportedEmployees.some((record) => String(record.employeeCode ?? "").toLowerCase() === employeeCode.toLowerCase());
+  if (duplicate) {
+    return res.status(409).json({ message: `Employee code ${employeeCode} already exists.` });
+  }
+  const role = String(req.body.role ?? "EMPLOYEE");
+  const department = previewDepartmentForId(req.body.departmentId);
+  const employeeRecord = {
+    id: `preview-imported-${employeeCode}`,
+    status: "ACTIVE",
+    leaveBalance: Number(req.body.leaveBalance ?? 21),
+    departmentId: department.id,
+    department,
+    user: {
+      id: `preview-user-${employeeCode}`,
+      role,
+      portalStatus: "PENDING_FIRST_LOGIN"
+    },
+    previewCreated: "true",
+    createdAt: new Date().toISOString(),
+    ...req.body,
+    employeeCode
+  };
+  previewImportedEmployees.push(employeeRecord);
+  writePreviewImportedEmployees(previewImportedEmployees);
+  previewEmployeeStatusOverrides[employeeRecord.id] = { role, portalStatus: employeeRecord.user.portalStatus };
+  previewEmployeeStatusOverrides[employeeCode] = previewEmployeeStatusOverrides[employeeRecord.id];
+  writePreviewEmployeeStatusOverrides(previewEmployeeStatusOverrides);
+  res.status(201).json(employeeRecord);
+});
 previewRouter.get("/employees/me", (req, res) => res.json(previewEmployeeForUser(req.user)));
 previewRouter.get("/employees/:id", (req, res) => res.json(previewEmployeeById(String(req.params.id))));
 previewRouter.patch("/employees/:id", (req, res) => {
   if (!["SUPER_ADMIN", "ADMIN", "HR_MANAGER", "HR_OFFICER", "HR"].includes(String(req.user?.role))) {
     return res.status(403).json({ message: "Insufficient permissions" });
   }
-  const overrideFields = ["managerId", "departmentId", "branch", "location", "leaveBalance", "basicSalary", "housingAllowance", "transportAllowance", "otherAllowance", "bankName", "iban", "passportNumber", "nationalId", "gosiNumber", "qiwaReference"];
-  const changedOverrideFields = overrideFields.filter((field) => Object.prototype.hasOwnProperty.call(req.body, field));
-  if (changedOverrideFields.length && !req.body.changeReason) {
-    return res.status(400).json({ message: "Reason for change is required for admin override or confidential employee updates." });
+  const importedIndex = previewImportedEmployees.findIndex((record) => record.id === req.params.id || record.employeeCode === req.params.id);
+  if (importedIndex < 0) {
+    return res.status(404).json({ message: "Employee not found" });
   }
-  res.json({ ...previewEmployeeById(String(req.params.id)), ...req.body, id: req.params.id, updatedAt: new Date().toISOString() });
+  const previous = previewImportedEmployees[importedIndex];
+  const { changeReason: _changeReason, role, portalStatus, ...updates } = req.body;
+  const previousDepartment = typeof previous.department === "object" && previous.department ? previous.department as Record<string, unknown> : undefined;
+  const nextDepartment = Object.prototype.hasOwnProperty.call(updates, "departmentId")
+    ? previewDepartmentForId(updates.departmentId, previousDepartment)
+    : previous.department;
+  const updated = {
+    ...previous,
+    ...updates,
+    user: role || portalStatus ? {
+      ...((previous.user as Record<string, unknown> | undefined) ?? {}),
+      role: String(role ?? ((previous.user as Record<string, unknown> | undefined)?.role ?? "EMPLOYEE")),
+      portalStatus: String(portalStatus ?? ((previous.user as Record<string, unknown> | undefined)?.portalStatus ?? "ACTIVE"))
+    } : previous.user,
+    id: previous.id ?? req.params.id,
+    employeeCode: previous.employeeCode ?? updates.employeeCode,
+    departmentId: Object.prototype.hasOwnProperty.call(updates, "departmentId") ? updates.departmentId : previous.departmentId,
+    department: nextDepartment,
+    updatedAt: new Date().toISOString()
+  };
+  previewImportedEmployees[importedIndex] = updated;
+  writePreviewImportedEmployees(previewImportedEmployees);
+  if (role || portalStatus) {
+    const employeeId = String(updated.id ?? "");
+    const employeeCode = String(updated.employeeCode ?? "");
+    previewEmployeeStatusOverrides[employeeId] = {
+      role: String(role ?? ((updated.user as Record<string, unknown> | undefined)?.role ?? "EMPLOYEE")),
+      portalStatus: String(portalStatus ?? ((updated.user as Record<string, unknown> | undefined)?.portalStatus ?? "ACTIVE"))
+    };
+    if (employeeCode) previewEmployeeStatusOverrides[employeeCode] = previewEmployeeStatusOverrides[employeeId];
+    writePreviewEmployeeStatusOverrides(previewEmployeeStatusOverrides);
+  }
+  res.json(normalizePreviewEmployee(updated));
+});
+previewRouter.patch("/employees/:id/restore", (req, res) => {
+  if (!["SUPER_ADMIN", "ADMIN", "HR_MANAGER", "HR_OFFICER", "HR"].includes(String(req.user?.role))) {
+    return res.status(403).json({ message: "Insufficient permissions" });
+  }
+  const importedIndex = previewImportedEmployees.findIndex((record) => record.id === req.params.id || record.employeeCode === req.params.id);
+  if (importedIndex < 0) return res.status(404).json({ message: "Employee not found" });
+  previewImportedEmployees[importedIndex] = {
+    ...previewImportedEmployees[importedIndex],
+    status: "ACTIVE",
+    isActive: true,
+    archivedAt: null,
+    archivedBy: null,
+    updatedAt: new Date().toISOString()
+  };
+  writePreviewImportedEmployees(previewImportedEmployees);
+  res.json({ message: "Employee restored successfully.", employee: normalizePreviewEmployee(previewImportedEmployees[importedIndex]) });
 });
 previewRouter.delete("/employees/:id", (req, res) => {
   if (!["SUPER_ADMIN", "ADMIN", "HR_MANAGER", "HR_OFFICER", "HR"].includes(String(req.user?.role))) {
     return res.status(403).json({ message: "Insufficient permissions" });
   }
+  const permanent = String(req.query.permanent ?? "false") === "true";
+  if (permanent && req.user?.role !== "SUPER_ADMIN") {
+    return res.status(403).json({ message: "You do not have permission to delete this record." });
+  }
   const archivedAt = new Date().toISOString();
   const importedIndex = previewImportedEmployees.findIndex((record) => record.id === req.params.id || record.employeeCode === req.params.id);
   if (importedIndex >= 0) {
-    previewImportedEmployees[importedIndex] = { ...previewImportedEmployees[importedIndex], status: "ARCHIVED", archivedAt };
+    if (permanent && String(previewImportedEmployees[importedIndex].previewCreated ?? "") === "true") {
+      const [removed] = previewImportedEmployees.splice(importedIndex, 1);
+      writePreviewImportedEmployees(previewImportedEmployees);
+      return res.json({ message: "Employee permanently deleted.", deleted: true, employeeId: removed.id });
+    }
+    previewImportedEmployees[importedIndex] = { ...previewImportedEmployees[importedIndex], status: "ARCHIVED", isActive: false, archivedAt, archivedBy: req.user?.id };
     writePreviewImportedEmployees(previewImportedEmployees);
-    return res.json(previewImportedEmployees[importedIndex]);
+    return res.json({ message: "Employee archived successfully.", archived: true, employee: normalizePreviewEmployee(previewImportedEmployees[importedIndex]) });
   }
-  res.json({ ...previewEmployeeById(String(req.params.id)), id: req.params.id, status: "ARCHIVED", archivedAt });
+  res.status(409).json({
+    message: "Employee cannot be deleted because related records exist. Employee has been archived instead.",
+    archived: true,
+    employee: { ...previewEmployeeById(String(req.params.id)), id: req.params.id, status: "ARCHIVED", archivedAt }
+  });
 });
 previewRouter.patch("/employees/:id/user-role", (req, res) => {
   const role = String(req.body.role ?? "EMPLOYEE");
@@ -519,109 +684,88 @@ previewRouter.delete("/employee/me/profile-photo", (req, res) => {
 });
 previewRouter.get("/employee/me/dashboard", (req, res) => {
   const currentEmployee = previewEmployeeForUser(req.user);
-  const payrollItem = previewPayrollItemForEmployee(currentEmployee);
+  const leaves = previewLeaveRequestsForEmployee(currentEmployee.id);
+  const attendance = previewAttendanceForEmployee(currentEmployee.id);
+  const vacationBalances = previewVacationBalancesForEmployee(currentEmployee.id);
   res.json({
-  employee: { ...currentEmployee, manager: managerEmployee, documents: [{ id: "doc-1", documentType: "IQAMA", expiryDate: "2026-08-15T00:00:00.000Z" }] },
-  pendingLeaves: 1,
+  employee: { ...currentEmployee, manager: managerEmployee, documents: currentEmployee.documents ?? [] },
+  pendingLeaves: leaves.filter((leave) => String(leave.status ?? "") === "PENDING").length,
   pendingLoans: 0,
   pendingBusinessTrips: 0,
   pendingPettyCash: 0,
   pendingResignation: null,
-  latestPayslip: { id: payrollItem.id, netSalary: payrollItem.netSalary, paymentDate: "2026-06-30T00:00:00.000Z", batch: { month: 6, year: 2026, status: "APPROVED" } },
-  recentPayslips: [{ id: payrollItem.id, netSalary: payrollItem.netSalary, documentReference: `PAY-2026-06-${currentEmployee.employeeCode}-PREVIEW` }],
-  documentExpiryAlerts: [{ id: "doc-1", documentType: "IQAMA", expiryDate: "2026-08-15T00:00:00.000Z" }],
-  attendanceSummary: [{ status: "PRESENT", _count: { status: 2 } }],
-  notifications: [
-    { id: "notif-1", title: "Payslip published", message: "June 2026 payslip is available.", category: "PAYSLIP_PUBLISHED", createdAt: new Date().toISOString() },
-    { id: "notif-2", title: "Leave pending", message: "Your annual leave is pending manager approval.", category: "LEAVE_SUBMITTED", createdAt: new Date().toISOString() }
-  ]
+  latestPayslip: null,
+  recentPayslips: [],
+  documentExpiryAlerts: currentEmployee.documents ?? [],
+  attendanceSummary: attendance.length ? [{ status: "PRESENT", _count: { status: attendance.length } }] : [],
+  vacationBalances,
+  notifications: []
 });
 });
 previewRouter.patch("/employee/me/contact", (req, res) => res.json({ ...previewEmployeeForUser(req.user), ...req.body }));
+const previewEmployeeLeaves = new Map<string, Array<Record<string, unknown>>>();
+const previewEmployeeAttendance = new Map<string, Array<Record<string, unknown>>>();
+const previewEmployeeVacationBalances = new Map<string, Array<Record<string, unknown>>>();
+const previewEmployeePayslips = new Map<string, Array<Record<string, unknown>>>();
+const previewEmployeeModuleRecords = new Map<string, Array<Record<string, unknown>>>();
+function previewLeaveRequestsForEmployee(employeeId: string) {
+  return previewEmployeeLeaves.get(employeeId) ?? [];
+}
+function previewAttendanceForEmployee(employeeId: string) {
+  return previewEmployeeAttendance.get(employeeId) ?? [];
+}
+function previewVacationBalancesForEmployee(employeeId: string) {
+  return previewEmployeeVacationBalances.get(employeeId) ?? [];
+}
+function previewPayslipsForEmployee(employeeId: string) {
+  return previewEmployeePayslips.get(employeeId) ?? [];
+}
+function previewModuleKey(module: string, employeeId: string) {
+  return `${module}:${employeeId}`;
+}
+function previewModuleRecordsForEmployee(module: string, employeeId: string) {
+  return previewEmployeeModuleRecords.get(previewModuleKey(module, employeeId)) ?? [];
+}
+function previewStoreEmployeeModuleRecord(module: string, employeeId: string, record: Record<string, unknown>) {
+  const key = previewModuleKey(module, employeeId);
+  previewEmployeeModuleRecords.set(key, [record, ...(previewEmployeeModuleRecords.get(key) ?? [])]);
+}
+function previewScopedModuleList(req: { user?: { role?: string; employeeId?: string | null; email?: string } }, module: string, adminRecords: Array<Record<string, unknown>>) {
+  if (req.user?.role === "EMPLOYEE") {
+    const currentEmployee = previewEmployeeForUser(req.user);
+    return previewModuleRecordsForEmployee(module, currentEmployee.id);
+  }
+  if (["DEPARTMENT_MANAGER", "OPERATIONS_MANAGER"].includes(String(req.user?.role ?? ""))) return [];
+  return adminRecords;
+}
 previewRouter.get("/employee/me/attendance", (req, res) => {
   const currentEmployee = previewEmployeeForUser(req.user);
-  res.json([
-  {
-    id: `preview-employee-attendance-${currentEmployee.employeeCode}-1`,
-    employeeId: currentEmployee.id,
-    employeeCode: currentEmployee.employeeCode,
-    employeeName: currentEmployee.fullName,
-    workDate: "2026-06-01T00:00:00.000Z",
-    checkIn: "2026-06-01T05:02:00.000Z",
-    checkOut: "2026-06-01T14:15:00.000Z",
-    lateMinutes: 2,
-    overtimeHours: "0.25",
-    status: "PRESENT",
-    source: "BIOMETRIC"
-  },
-  {
-    id: `preview-employee-attendance-${currentEmployee.employeeCode}-2`,
-    employeeId: currentEmployee.id,
-    employeeCode: currentEmployee.employeeCode,
-    employeeName: currentEmployee.fullName,
-    workDate: "2026-06-02T00:00:00.000Z",
-    checkIn: "2026-06-02T04:55:00.000Z",
-    checkOut: "2026-06-02T14:00:00.000Z",
-    lateMinutes: 0,
-    overtimeHours: "0.00",
-    status: "PRESENT",
-    source: "BIOMETRIC"
-  }
-]);
+  res.json(previewAttendanceForEmployee(currentEmployee.id));
 });
 previewRouter.get("/employee/me/leaves", (req, res) => {
   const currentEmployee = previewEmployeeForUser(req.user);
-  res.json([
-  {
-    id: "preview-employee-leave-1",
-    requestNumber: "LR-PREVIEW-001",
+  res.json(previewLeaveRequestsForEmployee(currentEmployee.id));
+});
+previewRouter.post("/employee/me/leaves", (req, res) => {
+  const currentEmployee = previewEmployeeForUser(req.user);
+  const created = {
+    id: `preview-employee-leave-${currentEmployee.employeeCode}-${Date.now()}`,
+    requestNumber: `LR-${currentEmployee.employeeCode}-${Date.now()}`,
     employeeId: currentEmployee.id,
     employeeCode: currentEmployee.employeeCode,
     employeeName: currentEmployee.fullName,
-    type: "ANNUAL",
-    startDate: "2026-06-15T00:00:00.000Z",
-    endDate: "2026-06-16T00:00:00.000Z",
-    days: 2,
     status: "PENDING",
     workflowStage: "PENDING_MANAGER_APPROVAL",
-    availableBalanceAtRequest: 21,
-    contactNumber: "+966511111111",
-    leaveAddress: "Jeddah, Saudi Arabia",
-    emergencyContact: "+966522222222",
-    destinationCountry: "Saudi Arabia",
-    destinationCity: "Jeddah",
-    mobileWhileOnLeave: "+966511111111",
-    personalEmailWhileOnLeave: "employee.personal@example.com",
-    emergencyContactName: "Family Contact",
-    emergencyContactNumber: "+966522222222",
-    emergencyContactRelationship: "Brother",
-    lastWorkingDay: "2026-06-14T00:00:00.000Z",
-    returnToWorkDate: "2026-06-17T00:00:00.000Z",
-    relieverId: managerEmployee.id,
-    relieverName: "Manager User",
-    relieverEmployeeCode: "EMP-010",
-    relieverDepartment: "Operations",
-    relieverDesignation: "Operations Manager",
-    handoverRequired: true,
-    handoverDetails: "Daily operations handed over.",
-    handoverAttachment: "handover-preview.pdf",
-    relieverAcknowledgementStatus: "PENDING",
-    annualVacationRemarks: "Annual vacation preview.",
-    attachments: [{ type: "Vacation request supporting document", name: "vacation-support.pdf" }],
-    reason: "Family commitment",
+    days: 1,
+    availableBalanceAtRequest: 0,
     manager: managerEmployee,
-    approvalHistory: [{ id: "hist-1", status: "PENDING", comments: "Submitted by employee", actedBy: "preview-employee-user", createdAt: new Date().toISOString() }]
-  }
-]);
+    approvalHistory: [{ id: `hist-${Date.now()}`, status: "PENDING", comments: "Submitted by employee", actedBy: req.user?.id, createdAt: new Date().toISOString() }],
+    ...req.body
+  };
+  const employeeLeaves = previewLeaveRequestsForEmployee(currentEmployee.id);
+  previewEmployeeLeaves.set(currentEmployee.id, [created, ...employeeLeaves]);
+  res.status(201).json(created);
 });
-previewRouter.post("/employee/me/leaves", (req, res) => res.status(201).json({
-  id: "preview-employee-leave-new",
-  requestNumber: "LR-PREVIEW-NEW",
-  status: "PENDING",
-  workflowStage: "PENDING_MANAGER_APPROVAL",
-  days: 1,
-  ...req.body
-}));
 previewRouter.get("/employee/me/relievers", (_req, res) => res.json([
   { ...managerEmployee, jobTitle: "Operations Manager", branch: "Riyadh", location: "Operations", department: managerEmployee.department, manager: omEmployee },
   { ...omEmployee, jobTitle: "Operations Manager", branch: "Riyadh", location: "Head Office", department: omEmployee.department, manager: null }
@@ -645,40 +789,31 @@ previewRouter.patch("/leaves/:id", (req, res) => res.json({
   ...req.body,
   updatedAt: new Date().toISOString()
 }));
-const vacationBalances = [
-  { id: "bal-1", leaveType: "ANNUAL", leaveYear: 2026, openingBalance: "15.00", accruedLeave: "6.00", carriedForwardBalance: "3.00", usedLeave: "0.00", pendingLeave: "2.00", adjustmentBalance: "0.00", encashmentBalance: "0.00", finalAvailableBalance: "22.00", carryForwardExpiryDate: "2026-12-31T00:00:00.000Z", updatedAt: new Date().toISOString() },
-  { id: "bal-2", leaveType: "SICK", leaveYear: 2026, openingBalance: "30.00", accruedLeave: "0.00", carriedForwardBalance: "0.00", usedLeave: "0.00", pendingLeave: "0.00", adjustmentBalance: "0.00", encashmentBalance: "0.00", finalAvailableBalance: "30.00", carryForwardExpiryDate: null, updatedAt: new Date().toISOString() }
-];
 previewRouter.get("/employee/me/leave-balance", (req, res) => {
   const currentEmployee = previewEmployeeForUser(req.user);
-  res.json({ leaveBalance: currentEmployee.leaveBalance, balances: vacationBalances.map((balance) => ({ ...balance, employeeId: currentEmployee.id, employeeCode: currentEmployee.employeeCode })) });
+  const balances = previewVacationBalancesForEmployee(currentEmployee.id);
+  const leaveBalance = balances.reduce((total, balance) => total + Number(balance.finalAvailableBalance ?? 0), 0);
+  res.json({ leaveBalance, balances });
 });
 previewRouter.get("/employee/me/vacation-balance", (req, res) => {
   const currentEmployee = previewEmployeeForUser(req.user);
-  res.json(vacationBalances.map((balance) => ({ ...balance, employeeId: currentEmployee.id, employeeCode: currentEmployee.employeeCode })));
+  res.json(previewVacationBalancesForEmployee(currentEmployee.id));
 });
-previewRouter.get("/employee/me/approval-history", (_req, res) => res.json([
-  { id: "hist-1", module: "Leave", entityId: "preview-employee-leave-1", status: "PENDING", comments: "Submitted by employee", actedBy: "preview-employee-user", createdAt: new Date().toISOString(), leaveRequest: { requestNumber: "LR-PREVIEW-001", type: "ANNUAL" } }
-]));
-previewRouter.get("/employee/me/notifications", (_req, res) => res.json([
-  { id: "notif-1", title: "Payslip published", message: "June 2026 payslip is available.", category: "PAYSLIP_PUBLISHED", createdAt: new Date().toISOString() },
-  { id: "notif-2", title: "Leave submitted", message: "Your request LR-PREVIEW-001 was submitted.", category: "LEAVE_SUBMITTED", createdAt: new Date().toISOString() }
-]));
+previewRouter.get("/employee/me/approval-history", (req, res) => {
+  const currentEmployee = previewEmployeeForUser(req.user);
+  const history = previewLeaveRequestsForEmployee(currentEmployee.id).flatMap((leave) => Array.isArray(leave.approvalHistory) ? leave.approvalHistory.map((entry) => ({ ...entry as Record<string, unknown>, leaveRequest: { requestNumber: leave.requestNumber, type: leave.type } })) : []);
+  res.json(history);
+});
+previewRouter.get("/employee/me/notifications", (_req, res) => res.json([]));
 previewRouter.get("/employee/me/payslips", (req, res) => {
   const currentEmployee = previewEmployeeForUser(req.user);
-  const payrollItem = previewPayrollItemForEmployee(currentEmployee);
-  res.json([
-  {
-    ...payrollItem,
-    payrollRun: { id: "preview-payroll-2026-06-all-employees", month: 6, year: 2026, status: "APPROVED" },
-    paymentDate: "2026-06-30T00:00:00.000Z",
-    source: "Sample Payroll"
-  }
-]);
+  res.json(previewPayslipsForEmployee(currentEmployee.id));
 });
 previewRouter.get("/employee/me/payslips/:id/download", async (req, res) => {
-  const company = payslipCompanyFromProfile(await getCurrentCompanyProfile());
   const currentEmployee = previewEmployeeForUser(req.user);
+  const payslip = previewPayslipsForEmployee(currentEmployee.id).find((item) => String(item.id) === String(req.params.id));
+  if (!payslip) return res.status(404).json({ message: "Payslip not found" });
+  const company = payslipCompanyFromProfile(await getCurrentCompanyProfile());
   const salary = previewPayrollNumbersForEmployee(currentEmployee);
   renderPayslipPdf(res, {
     company,
@@ -711,17 +846,7 @@ previewRouter.get("/employee/me/announcements", (_req, res) => res.json([
   }
 ]));
 
-previewRouter.get("/departments", (_req, res) => res.json([
-  { id: "preview-dept-1", code: "HR", name: "Human Resources", _count: { employees: 1 } },
-  { id: "preview-dept-2", code: "FIN", name: "Finance", _count: { employees: 0 } },
-  { id: "preview-dept-3", code: "OPS", name: "Operations", _count: { employees: 0 } },
-  { id: "preview-dept-4", code: "PPS", name: "Power Protection - Pre Sales", _count: { employees: 0 } },
-  { id: "preview-dept-5", code: "PAS", name: "Power Protection - After Sales", _count: { employees: 0 } },
-  { id: "preview-dept-6", code: "LC", name: "Low Current", _count: { employees: 0 } },
-  { id: "preview-dept-7", code: "SAL", name: "Sales", _count: { employees: 0 } },
-  { id: "preview-dept-8", code: "IT", name: "IT", _count: { employees: 0 } },
-  { id: "preview-dept-9", code: "ADM", name: "Administrative", _count: { employees: 0 } }
-]));
+previewRouter.get("/departments", (_req, res) => res.json(previewDepartments));
 previewRouter.get("/departments/template.csv", (_req, res) => {
   res.header("Content-Type", "text/csv");
   res.send("code,name\n");
@@ -737,6 +862,52 @@ previewRouter.get("/departments/export.xlsx", async (_req, res) => {
   await xlsxFile(res, "departments-export.xlsx", ["code", "name", "employeeCount"], [["HR", "Human Resources", 1], ["OPS", "Operations", 2], ["SAL", "Sales", 1]], "Departments");
 });
 previewRouter.post("/departments/import", (_req, res) => res.status(201).json({ message: "Import completed successfully.", createdCount: 1, updatedCount: 0, failedCount: 0, errors: [] }));
+function previewDepartmentReportingSetups() {
+  const manager = normalizePreviewEmployee(managerEmployee);
+  const om = normalizePreviewEmployee(omEmployee);
+  const hr = normalizePreviewEmployee(managerEmployee);
+  return previewDepartments.map((department) => ({
+    id: `preview-reporting-${department.id}`,
+    company: previewCompanyProfile.companyName,
+    branch: "",
+    departmentId: department.id,
+    department,
+    departmentHeadId: manager.id,
+    reportingManagerId: manager.id,
+    omId: om.id,
+    hrManagerId: hr.id,
+    backupManagerId: "",
+    departmentHead: manager,
+    reportingManager: manager,
+    operationsManager: om,
+    hrManager: hr,
+    backupManager: null,
+    effectiveStartDate: "2026-01-01T00:00:00.000Z",
+    effectiveEndDate: null,
+    status: "ACTIVE",
+    defaultReportingManager: true,
+    remarks: "Preview department reporting setup",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: new Date().toISOString()
+  }));
+}
+previewRouter.get("/departments/reporting-setups", (_req, res) => res.json(previewDepartmentReportingSetups()));
+previewRouter.get("/departments/reporting-tree", (_req, res) => {
+  const setups = previewDepartmentReportingSetups();
+  res.json(previewDepartments.map((department) => ({
+    ...department,
+    reportingSetups: setups.filter((setup) => setup.departmentId === department.id).slice(0, 1),
+    employees: previewEmployeeRecords().map((record) => normalizePreviewEmployee(record)).filter((employee) => employee.departmentId === department.id)
+  })));
+});
+previewRouter.get("/departments/:id/reporting-setup/active", (req, res) => {
+  const setup = previewDepartmentReportingSetups().find((item) => item.departmentId === req.params.id || item.department.code === req.params.id);
+  if (!setup) return res.status(404).json({ message: "No reporting setup found for this department." });
+  res.json(setup);
+});
+previewRouter.post("/departments/reporting-setups", (req, res) => res.status(201).json({ ...req.body, id: `preview-reporting-${Date.now()}`, department: previewDepartmentForId(req.body.departmentId), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }));
+previewRouter.patch("/departments/reporting-setups/:id", (req, res) => res.json({ ...req.body, id: req.params.id, department: previewDepartmentForId(req.body.departmentId), updatedAt: new Date().toISOString() }));
+previewRouter.post("/departments/reporting-setups/bulk-assign", (_req, res) => res.json({ message: "Department reporting setup applied.", count: previewEmployeeRecords().length }));
 previewRouter.post("/departments", (req, res) => res.status(201).json({ id: `preview-dept-${Date.now()}`, code: req.body.code, name: req.body.name, _count: { employees: 0 } }));
 previewRouter.patch("/departments/:id", (req, res) => res.json({ id: req.params.id, code: req.body.code, name: req.body.name, _count: { employees: 0 } }));
 previewRouter.delete("/departments/:id", (req, res) => res.json({ id: req.params.id, archivedAt: new Date().toISOString() }));
@@ -808,16 +979,15 @@ const biometricDevices = [
   makeBiometricDevice("preview-zkteco-fac", "ZK-FAC-01", "Factory ZKTeco Device", "Factory", "Factory", "192.168.4.201")
 ];
 const biometricDevice = biometricDevices[0];
+const previewBiometricEmployee = normalizePreviewEmployee(previewPrimaryEmployee());
 const biometricMappings = [
-  { id: "preview-map-1", biometricId: "BIO-002", deviceUserId: "EMP-002", cardNumber: "1002", syncStatus: "SYNCED", lastPunchAt: "2026-06-01T05:02:00.000Z", active: true, employee: { ...selfServiceEmployee, department: selfServiceEmployee.department }, device: biometricDevice },
-  { id: "preview-map-2", biometricId: "BIO-003", deviceUserId: "EMP-003", cardNumber: "1003", syncStatus: "SYNCED", lastPunchAt: "2026-06-01T05:20:00.000Z", active: true, employee: { id: "preview-employee-3", employeeCode: "EMP-003", firstName: "Team", lastName: "Member", department: { id: "preview-dept-7", name: "Sales", code: "SAL" } }, device: biometricDevice }
+  { id: "preview-map-10075", biometricId: "BIO-10075", deviceUserId: "10075", cardNumber: "10075", syncStatus: "SYNCED", lastPunchAt: "2026-06-01T05:02:00.000Z", active: true, employee: { ...previewBiometricEmployee, department: previewBiometricEmployee.department }, device: biometricDevice }
 ];
 const biometricRawLogs: Array<Record<string, any>> = [
-  { id: "preview-raw-1", deviceId: biometricDevice.id, device: biometricDevice, deviceName: biometricDevice.deviceName, deviceUserId: "EMP-002", employee: { ...selfServiceEmployee, department: selfServiceEmployee.department }, employeeName: "Employee User", punchDate: "2026-06-01T00:00:00.000Z", punchTime: "2026-06-01T05:02:00.000Z", punchType: "CHECK_IN", verificationType: "Fingerprint", workCode: "", deviceSerialNumber: biometricDevice.serialNumber, deviceIp: biometricDevice.ipAddress, syncAt: new Date().toISOString(), rawLogReference: "preview-raw-1", processingStatus: "PROCESSED" },
-  { id: "preview-raw-2", deviceId: biometricDevice.id, device: biometricDevice, deviceName: biometricDevice.deviceName, deviceUserId: "EMP-999", employee: null, employeeName: null, punchDate: "2026-06-01T00:00:00.000Z", punchTime: "2026-06-01T05:10:00.000Z", punchType: "UNKNOWN", verificationType: "Face", workCode: "", deviceSerialNumber: biometricDevice.serialNumber, deviceIp: biometricDevice.ipAddress, syncAt: new Date().toISOString(), rawLogReference: "preview-raw-2", processingStatus: "UNMATCHED", errorMessage: "No employee mapping found for biometric device user ID." }
+  { id: "preview-raw-10075", deviceId: biometricDevice.id, device: biometricDevice, deviceName: biometricDevice.deviceName, deviceUserId: "10075", employee: { ...previewBiometricEmployee, department: previewBiometricEmployee.department }, employeeName: previewBiometricEmployee.fullName, punchDate: "2026-06-01T00:00:00.000Z", punchTime: "2026-06-01T05:02:00.000Z", punchType: "CHECK_IN", verificationType: "Fingerprint", workCode: "", deviceSerialNumber: biometricDevice.serialNumber, deviceIp: biometricDevice.ipAddress, syncAt: new Date().toISOString(), rawLogReference: "preview-raw-10075", processingStatus: "PROCESSED", rawPayload: { latitude: 24.7136, longitude: 46.6753, capturedLocationName: "Riyadh" } }
 ];
 const biometricAttendanceRecords: Array<Record<string, any>> = [
-  { id: "preview-att-record-1", employee: { ...selfServiceEmployee, department: selfServiceEmployee.department }, workDate: "2026-06-01T00:00:00.000Z", shift: "Day Shift", firstIn: "2026-06-01T05:02:00.000Z", lastOut: "2026-06-01T14:15:00.000Z", workingHours: "9.22", lateMinutes: 2, earlyOutMinutes: 0, overtimeHours: "0.25", attendanceStatus: "LATE", device: biometricDevice, source: "BIOMETRIC", approvalStatus: "DRAFT" }
+  { id: "preview-att-record-10075", employee: { ...previewBiometricEmployee, department: previewBiometricEmployee.department }, workDate: "2026-06-01T00:00:00.000Z", shift: "Day Shift", firstIn: "2026-06-01T05:02:00.000Z", timeInLocationName: "Riyadh", lastOut: "2026-06-01T14:15:00.000Z", timeOutLocationName: "Riyadh", workingHours: "9.22", lateMinutes: 2, earlyOutMinutes: 0, overtimeHours: "0.25", attendanceStatus: "LATE", source: "BIOMETRIC", approvalStatus: "DRAFT" }
 ];
 function previewDistanceMeters(from: { latitude: number; longitude: number }, to: { latitude: number; longitude: number }) {
   const earthRadius = 6371000;
@@ -829,46 +999,25 @@ function previewDistanceMeters(from: { latitude: number; longitude: number }, to
   const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
   return 2 * earthRadius * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
+const previewKnownAttendanceLocations = [
+  { name: "Riyadh", latitude: 24.7136, longitude: 46.6753 },
+  { name: "Jeddah", latitude: 21.4858, longitude: 39.1925 },
+  { name: "Makkah", latitude: 21.3891, longitude: 39.8579 }
+];
+function previewCapturedLocationName(latitude: unknown, longitude: unknown) {
+  const lat = Number(latitude);
+  const lon = Number(longitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return "";
+  return previewKnownAttendanceLocations
+    .map((location) => ({ name: location.name, distance: previewDistanceMeters({ latitude: lat, longitude: lon }, { latitude: location.latitude, longitude: location.longitude }) }))
+    .sort((a, b) => a.distance - b.distance)[0]?.name ?? "";
+}
 previewRouter.get("/biometrics/devices", (_req, res) => res.json(biometricDevices));
 previewRouter.post("/biometrics/devices", (req, res) => res.status(201).json({ id: `preview-device-${Date.now()}`, connectionStatus: "NOT_TESTED", lastSyncAt: null, _count: { logs: 0, mappings: 0 }, ...req.body }));
 previewRouter.patch("/biometrics/devices/:id", (req, res) => res.json({ ...biometricDevice, id: req.params.id, ...req.body }));
 previewRouter.delete("/biometrics/devices/:id", (req, res) => res.json({ ...biometricDevice, id: req.params.id, status: "INACTIVE" }));
 previewRouter.post("/biometrics/devices/:id/test-connection", (req, res) => res.json({ ok: true, message: "Preview connection test completed. Configure a real device before production sync.", device: { ...biometricDevice, id: req.params.id } }));
 previewRouter.post("/biometrics/devices/:id/sync", (req, res) => res.status(400).json({ id: "preview-sync-failed", deviceId: req.params.id, status: "FAILED", errorMessage: "Preview mode does not connect to a live biometric machine." }));
-previewRouter.get("/biometrics/mobile-config", (_req, res) => res.json({
-  timezone: "Asia/Riyadh",
-  sites: biometricDevices.filter((device) => device.mobileEnabled).map((device) => ({
-    id: device.id,
-    name: device.deviceName,
-    branch: device.branch,
-    location: device.deviceLocation,
-    timezone: device.timezone,
-    latitude: device.siteLatitude,
-    longitude: device.siteLongitude,
-    radiusMeters: device.siteRadiusMeters
-  }))
-}));
-previewRouter.post("/biometrics/mobile-punch", (req, res) => {
-  const employee = previewEmployeeForUser(req.user);
-  const site = biometricDevices.find((device) => device.mobileEnabled) ?? biometricDevice;
-  res.status(201).json({
-    ok: true,
-    message: req.body.punchType === "CHECK_OUT" ? "Time out recorded." : "Time in recorded.",
-    employeeCode: employee.employeeCode,
-    employeeName: `${employee.firstName} ${employee.lastName}`,
-    siteName: site.deviceName,
-    punchTime: new Date().toISOString(),
-    timezone: "Asia/Riyadh",
-    distanceMeters: 0,
-    attendanceRecord: {
-      id: `preview-mobile-attendance-${Date.now()}`,
-      employeeId: employee.id,
-      workDate: new Date().toISOString(),
-      source: "MOBILE",
-      attendanceStatus: "INCOMPLETE_ATTENDANCE"
-    }
-  });
-});
 previewRouter.post("/biometrics/import", (_req, res) => res.status(201).json({ id: "preview-import-1", status: "COMPLETED", pulledCount: 2, processedCount: 1, unmatchedCount: 1, duplicateCount: 0 }));
 previewRouter.get("/biometrics/mobile-config", (_req, res) => res.json({
   timezone: "Asia/Riyadh",
@@ -890,16 +1039,18 @@ previewRouter.post("/biometrics/mobile-punch", (req, res) => {
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return res.status(400).json({ message: "GPS location is required." });
   const distance = previewDistanceMeters({ latitude, longitude }, { latitude: Number(device.siteLatitude), longitude: Number(device.siteLongitude) });
   const allowed = Number(device.siteRadiusMeters ?? 150) + Number(req.body.accuracyMeters ?? 0);
-  if (distance > allowed) return res.status(403).json({ message: `GPS location is outside the allowed site radius. Nearest site is ${Math.round(distance)}m away.`, nearestSite: device.deviceName, distanceMeters: Math.round(distance), allowedRadiusMeters: device.siteRadiusMeters });
+  const outsideAllowedRadius = distance > allowed;
   const employeeIdentifier = String(req.body.employeeIdentifier ?? "");
-  const previewEmployeeRecord = previewEmployeeRecords().find((item) => [
-    item.employeeCode,
-    item.email,
-    item.companyEmail,
-    item.biometricId,
-    item.deviceUserId,
-    item.nationalId
-  ].filter(Boolean).map(String).includes(employeeIdentifier)) ?? selfServiceEmployee;
+  const previewEmployeeRecord = previewEmployeeRecords().find((item) => String(item.id) === String(req.user?.employeeId)) ??
+    previewEmployeeRecords().find((item) => [
+      item.employeeCode,
+      item.email,
+      item.companyEmail,
+      item.biometricId,
+      item.deviceUserId,
+      item.nationalId
+    ].filter(Boolean).map(String).includes(employeeIdentifier)) ??
+    selfServiceEmployee;
   const previewEmployee = normalizePreviewEmployee(previewEmployeeRecord);
   const punchType = req.body.punchType === "CHECK_OUT" ? "CHECK_OUT" : "CHECK_IN";
   const punchTime = new Date(req.body.clientTime ?? Date.now()).toISOString();
@@ -922,7 +1073,7 @@ previewRouter.post("/biometrics/mobile-punch", (req, res) => {
     rawLogReference: `preview-mobile-${Date.now()}`,
     processingStatus: "PROCESSED",
     errorMessage: undefined,
-    rawPayload: { latitude, longitude, accuracyMeters: req.body.accuracyMeters, distanceMeters: Math.round(distance), timezone: req.body.timezone ?? "Asia/Riyadh" }
+    rawPayload: { latitude, longitude, accuracyMeters: req.body.accuracyMeters, distanceMeters: Math.round(distance), capturedLocationName: previewCapturedLocationName(latitude, longitude), allowedRadiusMeters: device.siteRadiusMeters, outsideAllowedRadius, timezone: req.body.timezone ?? "Asia/Riyadh" }
   };
   biometricRawLogs.unshift(log);
   const existing = biometricAttendanceRecords.find((record) => record.employee.employeeCode === previewEmployee.employeeCode && String(record.workDate).slice(0, 10) === punchTime.slice(0, 10));
@@ -938,34 +1089,57 @@ previewRouter.post("/biometrics/mobile-punch", (req, res) => {
     earlyOutMinutes: 0,
     overtimeHours: "0.00",
     attendanceStatus: "INCOMPLETE_ATTENDANCE",
-    device,
     source: "MOBILE",
     approvalStatus: "DRAFT"
   };
   if (punchType === "CHECK_IN" && !record.firstIn) record.firstIn = punchTime;
+  if (punchType === "CHECK_IN") record.timeInLocationName = previewCapturedLocationName(latitude, longitude);
   if (punchType === "CHECK_OUT") record.lastOut = punchTime;
+  if (punchType === "CHECK_OUT") record.timeOutLocationName = previewCapturedLocationName(latitude, longitude);
   if (!existing) biometricAttendanceRecords.unshift(record);
-  res.status(201).json({ ok: true, message: `${punchType === "CHECK_IN" ? "Time in" : "Time out"} recorded.`, employeeCode: previewEmployee.employeeCode, employeeName: `${previewEmployee.firstName} ${previewEmployee.lastName}`, siteName: device.deviceName, punchTime, timezone: req.body.timezone ?? "Asia/Riyadh", distanceMeters: Math.round(distance), attendanceRecord: record });
+  res.status(201).json({ ok: true, message: `${punchType === "CHECK_IN" ? "Time in" : "Time out"} recorded.`, employeeCode: previewEmployee.employeeCode, employeeName: `${previewEmployee.firstName} ${previewEmployee.lastName}`, siteName: device.deviceName, punchTime, timezone: req.body.timezone ?? "Asia/Riyadh", distanceMeters: Math.round(distance), warning: outsideAllowedRadius ? `GPS is outside the allowed site radius. Nearest site is ${Math.round(distance)}m away.` : undefined, attendanceRecord: record });
 });
 previewRouter.get("/biometrics/mappings", (_req, res) => res.json(biometricMappings));
 previewRouter.post("/biometrics/mappings", (req, res) => res.status(201).json({ id: `preview-map-${Date.now()}`, syncStatus: "PENDING", active: true, ...req.body }));
 previewRouter.patch("/biometrics/mappings/:id", (req, res) => res.json({ ...biometricMappings[0], id: req.params.id, ...req.body }));
 previewRouter.delete("/biometrics/mappings/:id", (req, res) => res.json({ id: req.params.id, active: false }));
 previewRouter.get("/biometrics/raw-logs", (_req, res) => res.json(biometricRawLogs));
+const previewRawLogHeaders = ["Device", "Device User ID", "Employee ID", "Employee Name", "Department", "Punch Date", "Punch Time", "Punch Type", "Verification Type", "GPS Latitude", "GPS Longitude", "GPS Accuracy Meters", "Site Distance Meters", "Work Code", "Serial", "IP", "Sync Time", "Raw Reference", "Processing Status", "Error"];
+function previewLogGps(log: Record<string, any>) {
+  const payload = typeof log.rawPayload === "object" && log.rawPayload ? log.rawPayload : {};
+  return {
+    latitude: payload.latitude ?? "",
+    longitude: payload.longitude ?? "",
+    accuracyMeters: payload.accuracyMeters ?? "",
+    distanceMeters: payload.distanceMeters ?? ""
+  };
+}
+function previewRawLogRows() {
+  return biometricRawLogs.map((log) => {
+    const gps = previewLogGps(log);
+    return [log.deviceName, log.deviceUserId, log.employee?.employeeCode ?? "", log.employeeName ?? "", log.employee?.department?.name ?? "", String(log.punchDate).slice(0, 10), log.punchTime, log.punchType, log.verificationType ?? "", gps.latitude, gps.longitude, gps.accuracyMeters, gps.distanceMeters, log.workCode ?? "", log.deviceSerialNumber ?? "", log.deviceIp ?? "", log.syncAt, log.rawLogReference, log.processingStatus, log.errorMessage ?? ""];
+  });
+}
 previewRouter.get("/biometrics/raw-logs/export.csv", (_req, res) => {
   res.header("Content-Type", "text/csv");
-  res.send("Device,Device User ID,Employee ID,Employee Name,Department,Punch Date,Punch Time,Punch Type,Verification Type,Work Code,Serial,IP,Sync Time,Raw Reference,Processing Status,Error\nMain Entrance ZKTeco,EMP-002,EMP-002,Employee User,Operations,2026-06-01,2026-06-01T05:02:00.000Z,CHECK_IN,Fingerprint,,ZK-PREVIEW-001,192.168.1.201,2026-06-01T05:05:00.000Z,preview-raw-1,PROCESSED,");
+  const lines = [previewRawLogHeaders, ...previewRawLogRows()].map((row) => row.map((value) => `"${String(value ?? "").replace(/"/g, "\"\"")}"`).join(","));
+  res.send(lines.join("\n"));
 });
 previewRouter.get("/biometrics/raw-logs/export.xlsx", async (_req, res) => {
-  await xlsxFile(res, "biometric-raw-logs.xlsx", ["Device", "Device User ID", "Employee ID", "Employee Name", "Department", "Punch Date", "Punch Time", "Punch Type", "Verification Type", "Work Code", "Serial", "IP", "Sync Time", "Raw Reference", "Processing Status", "Error"], [["Main Entrance ZKTeco", "EMP-002", "EMP-002", "Employee User", "Operations", "2026-06-01", "2026-06-01T05:02:00.000Z", "CHECK_IN", "Fingerprint", "", "ZK-PREVIEW-001", "192.168.1.201", "2026-06-01T05:05:00.000Z", "preview-raw-1", "PROCESSED", ""]], "Raw Logs");
+  await xlsxFile(res, "biometric-raw-logs.xlsx", previewRawLogHeaders, previewRawLogRows(), "Raw Logs");
 });
 previewRouter.get("/biometrics/attendance-records", (_req, res) => res.json(biometricAttendanceRecords));
+const previewAttendanceHeaders = ["Employee ID", "Employee Name", "Department", "Date", "Shift", "First In", "Time In Location", "Last Out", "Time Out Location", "Working Hours", "Late Minutes", "Early Out Minutes", "Overtime Hours", "Status", "Source", "Approval"];
+function previewAttendanceRows() {
+  return biometricAttendanceRecords.map((record) => [record.employee?.employeeCode ?? "", `${record.employee?.firstName ?? ""} ${record.employee?.lastName ?? ""}`.trim(), record.employee?.department?.name ?? "", String(record.workDate).slice(0, 10), record.shift ?? "", record.firstIn ?? "", record.timeInLocationName ?? "", record.lastOut ?? "", record.timeOutLocationName ?? "", record.workingHours ?? "", record.lateMinutes ?? 0, record.earlyOutMinutes ?? 0, record.overtimeHours ?? "", record.attendanceStatus ?? "", record.source ?? "", record.approvalStatus ?? ""]);
+}
 previewRouter.get("/biometrics/attendance-records/export.csv", (_req, res) => {
   res.header("Content-Type", "text/csv");
-  res.send("Employee ID,Employee Name,Department,Date,Shift,First In,Last Out,Working Hours,Late Minutes,Early Out Minutes,Overtime Hours,Status,Device,Source,Approval\nEMP-002,Employee User,Operations,2026-06-01,Day Shift,2026-06-01T05:02:00.000Z,2026-06-01T14:15:00.000Z,9.22,2,0,0.25,LATE,Main Entrance ZKTeco,BIOMETRIC,DRAFT");
+  const lines = [previewAttendanceHeaders, ...previewAttendanceRows()].map((row) => row.map((value) => `"${String(value ?? "").replace(/"/g, "\"\"")}"`).join(","));
+  res.send(lines.join("\n"));
 });
 previewRouter.get("/biometrics/attendance-records/export.xlsx", async (_req, res) => {
-  await xlsxFile(res, "biometric-attendance-records.xlsx", ["Employee ID", "Employee Name", "Department", "Date", "Shift", "First In", "Last Out", "Working Hours", "Late Minutes", "Early Out Minutes", "Overtime Hours", "Status", "Device", "Source", "Approval"], [["EMP-002", "Employee User", "Operations", "2026-06-01", "Day Shift", "2026-06-01T05:02:00.000Z", "2026-06-01T14:15:00.000Z", "9.22", 2, 0, "0.25", "LATE", "Main Entrance ZKTeco", "BIOMETRIC", "DRAFT"]], "Attendance");
+  await xlsxFile(res, "biometric-attendance-records.xlsx", previewAttendanceHeaders, previewAttendanceRows(), "Attendance");
 });
 previewRouter.get("/biometrics/sync-history", (_req, res) => res.json([{ id: "preview-sync-1", device: biometricDevice, startedAt: new Date().toISOString(), finishedAt: new Date().toISOString(), status: "COMPLETED", pulledCount: 2, processedCount: 1, unmatchedCount: 1, duplicateCount: 0, triggeredBy: "admin@company.sa" }]));
 previewRouter.get("/biometrics/error-logs", (_req, res) => res.json([{ id: "preview-error-1", device: biometricDevice, action: "PROCESS_PUNCH", message: "No employee mapping found for EMP-999", createdAt: new Date().toISOString() }]));
@@ -1288,7 +1462,7 @@ const previewReportCatalog = [
   { category: "Government Reports", reports: [{ id: "government-integration-log", title: "Government Integration Log Report", description: "GOSI, Mudad, and Qiwa connector logs." }] },
   { category: "Master Data Reports", reports: [{ id: "master-data", title: "Master Data Report", description: "Company and master data records." }] },
   { category: "Workflow & Approval Reports", reports: [{ id: "pending-approvals", title: "Pending Approval Report", description: "All pending approval workflow items." }] },
-  { category: "Audit & Security Reports", reports: [{ id: "audit-log", title: "Audit Log Report", description: "System audit trail." }] }
+  { category: "Audit & Security Reports", reports: [{ id: "audit-log", title: "Audit Log Report", description: "System audit trail." }, { id: "employee-mapping-audit", title: "Employee Mapping Audit Report", description: "Employee-linked records with missing or invalid employee mappings." }] }
 ];
 
 previewRouter.get("/reports/catalog", (_req, res) => res.json(previewReportCatalog));
@@ -1309,7 +1483,7 @@ previewRouter.get("/reports/dashboard.xlsx", async (_req, res) => {
   await xlsxFile(res, "hrms-dashboard-report.xlsx", ["Metric", "Value"], [["Total Employees", 2], ["Active Employees", 2], ["Pending Leaves", 2], ["Pending Payroll", 1], ["Monthly Payroll Cost", "24362.50"]], "Dashboard");
 });
 function previewDashboardPayload(role = "ADMIN") {
-  const employees = [employee, selfServiceEmployee, managerEmployee, omEmployee, ...previewImportedEmployees] as Array<Record<string, unknown>>;
+  const employees = previewEmployeeRecords();
   const countByField = (field: string) => {
     const counts = new Map<string, number>();
     employees.forEach((row) => {
@@ -1411,7 +1585,7 @@ function previewReportDefinition(id: string) {
 }
 
 function previewReportRows(id: string) {
-  const employees = ([employee, selfServiceEmployee, managerEmployee, omEmployee, ...previewImportedEmployees] as Array<Record<string, unknown>>).map((row) => ({
+  const employees = previewEmployeeRecords().map((row) => ({
     employeeId: String(row.employeeCode ?? ""),
     employeeName: `${String(row.firstName ?? "")} ${String(row.lastName ?? "")}`.trim(),
     nationality: String(row.nationality ?? "Saudi"),
@@ -1480,6 +1654,14 @@ function previewReportRows(id: string) {
       columns: ["user", "role", "module", "action", "recordNo", "previousValue", "newValue", "dateTime", "ipDevice", "status"].map((key) => ({ key, label: key.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase()) })),
       rows: [{ user: "preview-admin", role: "ADMIN", module: "User", action: "LOGIN", recordNo: "preview-admin", previousValue: "", newValue: "", dateTime: new Date().toISOString(), ipDevice: "127.0.0.1 / Preview", status: "RECORDED" }],
       summary: { totalLogs: 1 }
+    },
+    "employee-mapping-audit": {
+      columns: ["moduleName", "recordNumber", "employeeId", "employeeName", "mappingStatus", "createdDate", "actions"].map((key) => ({ key, label: key.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase()) })),
+      rows: previewEmployeeRecords().map((record) => {
+        const employeeRecord = normalizePreviewEmployee(record);
+        return { moduleName: "Employee Master", recordNumber: employeeRecord.employeeCode, employeeId: employeeRecord.id, employeeName: employeeRecord.fullName, mappingStatus: "Valid", createdDate: String((record as Record<string, unknown>).createdAt ?? ""), actions: "View" };
+      }),
+      summary: { totalRecords: previewEmployeeRecords().length, valid: previewEmployeeRecords().length, missingEmployeeId: 0, employeeNotFound: 0 }
     }
   };
   if (id === "payslip-report") return reports["payroll-register"];
@@ -1558,8 +1740,13 @@ const previewTrip = {
   createdAt: new Date().toISOString(),
   employee: { ...selfServiceEmployee, jobTitle: "Operations Specialist", department: selfServiceEmployee.department }
 };
-previewRouter.get("/business-trips", (_req, res) => res.json([previewTrip]));
-previewRouter.post("/business-trips", (req, res) => res.status(201).json({ ...previewTrip, id: `preview-trip-${Date.now()}`, requestNumber: `TRIP-${Date.now()}`, ...req.body }));
+previewRouter.get("/business-trips", (req, res) => res.json(previewScopedModuleList(req, "business-trips", [previewTrip])));
+previewRouter.post("/business-trips", (req, res) => {
+  const currentEmployee = previewEmployeeForUser(req.user);
+  const created = { ...previewTrip, id: `preview-trip-${Date.now()}`, requestNumber: `TRIP-${Date.now()}`, employeeId: currentEmployee.id, employee: currentEmployee, ...req.body };
+  if (req.user?.role === "EMPLOYEE") previewStoreEmployeeModuleRecord("business-trips", currentEmployee.id, created);
+  res.status(201).json(created);
+});
 previewRouter.patch("/business-trips/:id", (req, res) => res.json({ ...previewTrip, id: req.params.id, ...req.body, updatedAt: new Date().toISOString() }));
 previewRouter.patch("/business-trips/:id/decision", (req, res) => res.json({ ...previewTrip, id: req.params.id, status: req.body.action === "REJECT" ? "REJECTED" : req.body.action === "RETURN_FOR_CORRECTION" ? "RETURNED_FOR_CORRECTION" : "PENDING_OM", approvalTimeline: [{ action: req.body.action, comments: req.body.comments, at: new Date().toISOString() }] }));
 previewRouter.post("/business-trips/expense-claims", (req, res) => res.status(201).json({ id: `preview-trip-claim-${Date.now()}`, claimNumber: `TEXP-${Date.now()}`, status: "PENDING_MANAGER", ...req.body }));
@@ -1591,8 +1778,13 @@ const previewLoan = {
   loanStatus: "REQUESTED",
   employee: { ...selfServiceEmployee, department: selfServiceEmployee.department }
 };
-previewRouter.get("/loans", (_req, res) => res.json([previewLoan]));
-previewRouter.post("/loans", (req, res) => res.status(201).json({ ...previewLoan, id: `preview-loan-${Date.now()}`, requestNumber: `LOAN-${Date.now()}`, ...req.body }));
+previewRouter.get("/loans", (req, res) => res.json(previewScopedModuleList(req, "loans", [previewLoan])));
+previewRouter.post("/loans", (req, res) => {
+  const currentEmployee = previewEmployeeForUser(req.user);
+  const created = { ...previewLoan, id: `preview-loan-${Date.now()}`, requestNumber: `LOAN-${Date.now()}`, employeeId: currentEmployee.id, employee: currentEmployee, ...req.body };
+  if (req.user?.role === "EMPLOYEE") previewStoreEmployeeModuleRecord("loans", currentEmployee.id, created);
+  res.status(201).json(created);
+});
 previewRouter.patch("/loans/:id", (req, res) => res.json({ ...previewLoan, id: req.params.id, ...req.body, updatedAt: new Date().toISOString() }));
 previewRouter.patch("/loans/:id/decision", (req, res) => res.json({ ...previewLoan, id: req.params.id, status: req.body.action === "REJECT" ? "REJECTED" : req.body.action === "RETURN_FOR_CORRECTION" ? "RETURNED_FOR_CORRECTION" : "PENDING_OM", approvalTimeline: [{ action: req.body.action, comments: req.body.comments, at: new Date().toISOString() }] }));
 previewRouter.get("/loans/export.csv", (_req, res) => {
@@ -1841,7 +2033,7 @@ previewRouter.get("/appraisals/bulk/export.csv", (_req, res) => {
 previewRouter.get("/appraisals/bulk/export.xlsx", async (_req, res) => {
   await xlsxFile(res, "bulk-appraisal-batches.xlsx", ["Batch Number", "Upload File Name", "Employees", "Total Current Salary", "Total Increase", "Total New Salary", "Status"], [["BAPP-PREVIEW-001", "bulk-appraisal.csv", 1, "10800.00", "540.00", "11340.00", "DRAFT"]], "Bulk Appraisal");
 });
-previewRouter.get("/appraisals", (_req, res) => res.json([previewAppraisal]));
+previewRouter.get("/appraisals", (req, res) => res.json(previewScopedModuleList(req, "appraisals", [previewAppraisal])));
 previewRouter.get("/appraisals/periods", (_req, res) => res.json([{ id: "period-1", code: "2026-ANNUAL", year: 2026, status: "ACTIVE", startDate: "2026-01-01T00:00:00.000Z", endDate: "2026-12-31T00:00:00.000Z" }]));
 previewRouter.post("/appraisals/periods", (req, res) => res.status(201).json({ id: `period-${Date.now()}`, ...req.body }));
 previewRouter.get("/appraisals/templates", (_req, res) => res.json([{ id: "template-1", name: "Default Appraisal", active: true }]));
@@ -1888,8 +2080,13 @@ previewRouter.get("/ticket-requests/export.csv", (_req, res) => {
 previewRouter.get("/ticket-requests/export.xlsx", async (_req, res) => {
   await xlsxFile(res, "ticket-requests.xlsx", ["Ticket Request No", "Leave Request No", "Employee ID", "Employee Name", "Department", "Destination", "Departure Date", "Return Date", "Ticket Type", "Estimated Cost", "Status"], [["TKT-PREVIEW-001", "LR-PREVIEW-001", "EMP-002", "Employee User", "Operations", "Jeddah, Saudi Arabia", "2026-06-15", "2026-06-17", "RETURN", "1200.00", "PENDING_MANAGER"]], "Ticket Requests");
 });
-previewRouter.get("/ticket-requests", (_req, res) => res.json([previewTicketRequest]));
-previewRouter.post("/ticket-requests", (req, res) => res.status(201).json({ ...previewTicketRequest, id: `preview-ticket-${Date.now()}`, requestNumber: `TKT-${Date.now()}`, ...req.body }));
+previewRouter.get("/ticket-requests", (req, res) => res.json(previewScopedModuleList(req, "ticket-requests", [previewTicketRequest])));
+previewRouter.post("/ticket-requests", (req, res) => {
+  const currentEmployee = previewEmployeeForUser(req.user);
+  const created = { ...previewTicketRequest, id: `preview-ticket-${Date.now()}`, requestNumber: `TKT-${Date.now()}`, employeeId: currentEmployee.id, employee: currentEmployee, ...req.body };
+  if (req.user?.role === "EMPLOYEE") previewStoreEmployeeModuleRecord("ticket-requests", currentEmployee.id, created);
+  res.status(201).json(created);
+});
 previewRouter.patch("/ticket-requests/:id/decision", (req, res) => res.json({ ...previewTicketRequest, id: req.params.id, status: req.body.action === "REJECT" ? "REJECTED" : req.body.action === "RETURN_FOR_CORRECTION" ? "RETURNED_FOR_CORRECTION" : "PENDING_OM", approvalTimeline: [{ action: req.body.action, comments: req.body.comments, at: new Date().toISOString() }] }));
 previewRouter.get("/ticket-requests/:id/print", async (_req, res) => {
   const company = await getCurrentCompanyProfile();
@@ -1922,8 +2119,13 @@ previewRouter.get("/petty-cash/export.csv", (_req, res) => {
 previewRouter.get("/petty-cash/export.xlsx", async (_req, res) => {
   await xlsxFile(res, "petty-cash-requests.xlsx", ["Request No", "Employee ID", "Employee Name", "Department", "Request Type", "Linked Reference", "Requested", "Outstanding", "Status"], [["PC-PREVIEW-001", "EMP-002", "Employee User", "Operations", "Travel Expense", "LR-PREVIEW-001", "800.00", "800.00", "PENDING_MANAGER"]], "Petty Cash");
 });
-previewRouter.get("/petty-cash", (_req, res) => res.json([previewPettyCash]));
-previewRouter.post("/petty-cash", (req, res) => res.status(201).json({ ...previewPettyCash, id: `preview-petty-${Date.now()}`, requestNumber: `PC-${Date.now()}`, ...req.body }));
+previewRouter.get("/petty-cash", (req, res) => res.json(previewScopedModuleList(req, "petty-cash", [previewPettyCash])));
+previewRouter.post("/petty-cash", (req, res) => {
+  const currentEmployee = previewEmployeeForUser(req.user);
+  const created = { ...previewPettyCash, id: `preview-petty-${Date.now()}`, requestNumber: `PC-${Date.now()}`, employeeId: currentEmployee.id, employee: currentEmployee, ...req.body };
+  if (req.user?.role === "EMPLOYEE") previewStoreEmployeeModuleRecord("petty-cash", currentEmployee.id, created);
+  res.status(201).json(created);
+});
 previewRouter.patch("/petty-cash/:id/decision", (req, res) => res.json({ ...previewPettyCash, id: req.params.id, status: req.body.action === "REJECT" ? "REJECTED" : req.body.action === "PAY" ? "FINAL_APPROVED" : "PENDING_OM", approvalTimeline: [{ action: req.body.action, comments: req.body.comments, at: new Date().toISOString() }] }));
 previewRouter.get("/petty-cash/:id/print", async (_req, res) => {
   const company = await getCurrentCompanyProfile();
@@ -1990,8 +2192,13 @@ previewRouter.get("/resignations/final-settlements/export.xlsx", async (_req, re
 });
 previewRouter.get("/resignations/clearance", (_req, res) => res.json(previewClearance));
 previewRouter.patch("/resignations/clearance/:id", (req, res) => res.json({ ...previewClearance[0], id: req.params.id, status: req.body.status ?? "COMPLETED", remarks: req.body.remarks, completedBy: req.user?.email, completedDate: new Date().toISOString() }));
-previewRouter.get("/resignations", (_req, res) => res.json([resignationWithChildren]));
-previewRouter.post("/resignations", (req, res) => res.status(201).json({ ...resignationWithChildren, id: `preview-resignation-${Date.now()}`, requestNumber: `RES-${Date.now()}`, ...req.body, status: "DRAFT", createdAt: new Date().toISOString() }));
+previewRouter.get("/resignations", (req, res) => res.json(previewScopedModuleList(req, "resignations", [resignationWithChildren])));
+previewRouter.post("/resignations", (req, res) => {
+  const currentEmployee = previewEmployeeForUser(req.user);
+  const created = { ...resignationWithChildren, id: `preview-resignation-${Date.now()}`, requestNumber: `RES-${Date.now()}`, employeeId: currentEmployee.id, employee: currentEmployee, ...req.body, status: "DRAFT", createdAt: new Date().toISOString() };
+  if (req.user?.role === "EMPLOYEE") previewStoreEmployeeModuleRecord("resignations", currentEmployee.id, created);
+  res.status(201).json(created);
+});
 previewRouter.patch("/resignations/:id", (req, res) => res.json({ ...resignationWithChildren, id: req.params.id, ...req.body, updatedAt: new Date().toISOString() }));
 previewRouter.patch("/resignations/:id/decision", (req, res) => {
   const status = req.body.action === "REJECT" ? "REJECTED" : req.body.action === "RETURN_FOR_CORRECTION" ? "RETURNED_FOR_CORRECTION" : req.body.action === "CANCEL" ? "CANCELLED" : req.body.action === "SUBMIT" ? "PENDING_MANAGER" : "PENDING_OM";
@@ -2214,10 +2421,22 @@ previewRouter.get("/permissions", (_req, res) => res.json([
 ]));
 previewRouter.put("/permissions", (req, res) => res.json({ id: "perm-updated", ...req.body }));
 
-previewRouter.get("/auth/admin/portal-accounts", (_req, res) => res.json([
-  { id: "preview-employee-user", email: "employee@company.com", role: "EMPLOYEE", portalStatus: "ACTIVE", failedLoginAttempts: 0, lockedUntil: null, employee: { ...selfServiceEmployee, department: selfServiceEmployee.department } },
-  { id: "preview-manager-user", email: "manager@company.com", role: "DEPARTMENT_MANAGER", portalStatus: "ACTIVE", failedLoginAttempts: 0, lockedUntil: null, employee: { ...managerEmployee, department: managerEmployee.department } }
-]));
+previewRouter.get("/auth/admin/portal-accounts", (_req, res) => {
+  const accounts = previewEmployeeRecords().map((record) => {
+    const employeeRecord = normalizePreviewEmployee(withPreviewUserStatus(record));
+    const user = (employeeRecord.user as Record<string, unknown> | undefined) ?? {};
+    return {
+      id: String(user.id ?? `preview-user-${employeeRecord.employeeCode}`),
+      email: employeeRecord.email,
+      role: String(user.role ?? "EMPLOYEE"),
+      portalStatus: String(user.portalStatus ?? "ACTIVE"),
+      failedLoginAttempts: 0,
+      lockedUntil: null,
+      employee: employeeRecord
+    };
+  });
+  res.json(accounts);
+});
 previewRouter.get("/auth/admin/portal-accounts/:id/history", (_req, res) => res.json({
   logins: [{ id: "login-1", username: "EMP-002", result: "SUCCESS", createdAt: new Date().toISOString(), device: "Preview Browser" }],
   resets: [{ id: "reset-1", action: "ADMIN_PASSWORD_RESET", createdAt: new Date().toISOString() }]

@@ -244,15 +244,63 @@ model CompanyProfile {
 }
 
 model Department {
-  id                String             @id @default(cuid())
-  name              String             @unique
-  code              String             @unique
-  employees         Employee[]
-  managedBy         Employee[]         @relation("DepartmentManager")
-  approvalWorkflows ApprovalWorkflow[]
-  biometricDevices  BiometricDevice[]
-  createdAt         DateTime           @default(now())
-  updatedAt         DateTime           @updatedAt
+  id                        String             @id @default(cuid())
+  name                      String             @unique
+  nameArabic                String?
+  code                      String             @unique
+  company                   String?
+  branch                    String?
+  parentDepartmentId        String?
+  parentDepartment          Department?        @relation("DepartmentHierarchy", fields: [parentDepartmentId], references: [id])
+  childDepartments          Department[]       @relation("DepartmentHierarchy")
+  departmentHeadId          String?
+  departmentHead            Employee?          @relation("DepartmentHead", fields: [departmentHeadId], references: [id])
+  defaultReportingManagerId String?
+  defaultReportingManager   Employee?          @relation("DepartmentDefaultReportingManager", fields: [defaultReportingManagerId], references: [id])
+  omId                      String?
+  operationsManager         Employee?          @relation("DepartmentOperationsManager", fields: [omId], references: [id])
+  hrManagerId               String?
+  hrManager                 Employee?          @relation("DepartmentHrManager", fields: [hrManagerId], references: [id])
+  costCenter                String?
+  status                    String             @default("ACTIVE")
+  remarks                   String?
+  employees                 Employee[]
+  managedBy                 Employee[]         @relation("DepartmentManager")
+  reportingSetups           DepartmentReportingSetup[]
+  approvalWorkflows         ApprovalWorkflow[]
+  biometricDevices          BiometricDevice[]
+  createdAt                 DateTime           @default(now())
+  updatedAt                 DateTime           @updatedAt
+}
+
+model DepartmentReportingSetup {
+  id                      String     @id @default(cuid())
+  company                 String?
+  branch                  String?
+  departmentId            String
+  department              Department @relation(fields: [departmentId], references: [id])
+  departmentHeadId        String?
+  departmentHead          Employee?  @relation("DepartmentReportingHead", fields: [departmentHeadId], references: [id])
+  reportingManagerId      String?
+  reportingManager        Employee?  @relation("DepartmentReportingManager", fields: [reportingManagerId], references: [id])
+  omId                    String?
+  operationsManager       Employee?  @relation("DepartmentReportingOm", fields: [omId], references: [id])
+  hrManagerId             String?
+  hrManager               Employee?  @relation("DepartmentReportingHr", fields: [hrManagerId], references: [id])
+  backupManagerId         String?
+  backupManager           Employee?  @relation("DepartmentReportingBackup", fields: [backupManagerId], references: [id])
+  effectiveStartDate      DateTime
+  effectiveEndDate        DateTime?
+  status                  String     @default("ACTIVE")
+  defaultReportingManager Boolean    @default(true)
+  remarks                 String?
+  createdBy               String?
+  updatedBy               String?
+  createdAt               DateTime   @default(now())
+  updatedAt               DateTime   @updatedAt
+
+  @@index([departmentId, status])
+  @@index([reportingManagerId])
 }
 
 model Employee {
@@ -295,6 +343,18 @@ model Employee {
   managerId                    String?
   manager                      Employee?                     @relation("EmployeeManager", fields: [managerId], references: [id])
   directReports                Employee[]                    @relation("EmployeeManager")
+  departmentHeadId             String?
+  departmentHead               Employee?                     @relation("EmployeeDepartmentHead", fields: [departmentHeadId], references: [id])
+  departmentHeadReports        Employee[]                    @relation("EmployeeDepartmentHead")
+  omId                         String?
+  operationsManager            Employee?                     @relation("EmployeeOperationsManager", fields: [omId], references: [id])
+  operationsReports            Employee[]                    @relation("EmployeeOperationsManager")
+  hrManagerId                  String?
+  hrManager                    Employee?                     @relation("EmployeeHrManager", fields: [hrManagerId], references: [id])
+  hrReports                    Employee[]                    @relation("EmployeeHrManager")
+  alternateManagerId           String?
+  alternateManager             Employee?                     @relation("EmployeeAlternateManager", fields: [alternateManagerId], references: [id])
+  alternateReports             Employee[]                    @relation("EmployeeAlternateManager")
   employeeType                 String?
   contractType                 String?
   contractExpiryDate           DateTime?
@@ -320,6 +380,15 @@ model Employee {
   departmentId                 String
   department                   Department                    @relation(fields: [departmentId], references: [id])
   managedDepartments           Department[]                  @relation("DepartmentManager")
+  departmentHeadDepartments    Department[]                  @relation("DepartmentHead")
+  defaultReportingDepartments  Department[]                  @relation("DepartmentDefaultReportingManager")
+  departmentOmDepartments      Department[]                  @relation("DepartmentOperationsManager")
+  departmentHrDepartments      Department[]                  @relation("DepartmentHrManager")
+  departmentHeadSetups         DepartmentReportingSetup[]    @relation("DepartmentReportingHead")
+  reportingManagerSetups       DepartmentReportingSetup[]    @relation("DepartmentReportingManager")
+  omReportingSetups            DepartmentReportingSetup[]    @relation("DepartmentReportingOm")
+  hrManagerReportingSetups     DepartmentReportingSetup[]    @relation("DepartmentReportingHr")
+  backupManagerReportingSetups DepartmentReportingSetup[]    @relation("DepartmentReportingBackup")
   user                         User?
   attendance                   Attendance[]
   biometricMappings            BiometricEmployeeMapping[]
@@ -346,9 +415,13 @@ model Employee {
   finalSettlements             FinalSettlement[]
   ticketRequests               TicketRequest[]
   pettyCashRequests            PettyCashRequest[]
+  isActive                     Boolean                       @default(true) @map("is_active")
   createdAt                    DateTime                      @default(now())
   updatedAt                    DateTime                      @updatedAt
   archivedAt                   DateTime?
+  archivedBy                   String?
+  deletedAt                    DateTime?
+  deletedBy                    String?
 }
 
 model Attendance {

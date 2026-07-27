@@ -54,6 +54,7 @@ export default async function EmployeePayslipsPage({ searchParams }: { searchPar
                 </td>
               </tr>
             ))}
+            {filtered.length === 0 ? <tr><td colSpan={9}>No approved payslip available.</td></tr> : null}
           </tbody>
         </table>
       </div>

@@ -8,6 +8,8 @@ async function proxy(request: Request, context: { params: Promise<{ path: string
   const cookieStore = await cookies();
   const token = cookieStore.get("hrms_token")?.value;
   const url = new URL(request.url);
+  const host = request.headers.get("host") ?? url.host;
+  const isLocalPreview = host.startsWith("localhost") || host.startsWith("127.0.0.1");
   const target = `${apiUrl}/api/${params.path.join("/")}${url.search}`;
   const body = ["GET", "HEAD"].includes(request.method) ? undefined : await request.arrayBuffer();
   const response = await fetch(target, {
@@ -21,7 +23,18 @@ async function proxy(request: Request, context: { params: Promise<{ path: string
 
   const contentType = response.headers.get("Content-Type") ?? "";
   if (contentType.includes("application/json")) {
-    return NextResponse.json(await response.json(), { status: response.status });
+    const data = await response.json();
+    const nextResponse = NextResponse.json(data, { status: response.status });
+    if (response.ok && params.path.join("/") === "auth/change-password" && data?.token) {
+      nextResponse.cookies.set("hrms_token", data.token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production" && !isLocalPreview,
+        sameSite: "lax",
+        path: "/",
+        maxAge: 60 * 30
+      });
+    }
+    return nextResponse;
   }
 
   return new NextResponse(await response.arrayBuffer(), {

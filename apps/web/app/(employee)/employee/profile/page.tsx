@@ -15,7 +15,16 @@ type Employee = {
   profilePhotoPath?: string;
   profilePhotoStatus?: string;
   department: { name: string };
+  manager?: { employeeCode: string; firstName: string; lastName: string } | null;
+  departmentHead?: { employeeCode: string; firstName: string; lastName: string } | null;
+  operationsManager?: { employeeCode: string; firstName: string; lastName: string } | null;
+  hrManager?: { employeeCode: string; firstName: string; lastName: string } | null;
+  alternateManager?: { employeeCode: string; firstName: string; lastName: string } | null;
 };
+
+function person(value?: { employeeCode: string; firstName: string; lastName: string } | null) {
+  return value ? `${value.employeeCode} - ${value.firstName} ${value.lastName}` : "Not assigned";
+}
 
 export default async function EmployeeProfilePage() {
   const employee = await apiFetch<Employee>("/employee/me");
@@ -34,6 +43,10 @@ export default async function EmployeeProfilePage() {
         <div className="panel"><span className="muted">Name</span><h2>{employee.firstName} {employee.lastName}</h2></div>
         <div className="panel"><span className="muted">Role</span><h2>{employee.jobTitle}</h2></div>
         <div className="panel"><span className="muted">Department</span><h2>{employee.department.name}</h2></div>
+        <div className="panel"><span className="muted">Reporting Manager</span><h2>{person(employee.manager)}</h2></div>
+        <div className="panel"><span className="muted">Department Head</span><h2>{person(employee.departmentHead)}</h2></div>
+        <div className="panel"><span className="muted">OM</span><h2>{person(employee.operationsManager)}</h2></div>
+        <div className="panel"><span className="muted">HR Manager</span><h2>{person(employee.hrManager)}</h2></div>
       </section>
       <div style={{ height: 16 }} />
       <ContactForm employee={employee} />

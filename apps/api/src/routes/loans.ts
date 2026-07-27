@@ -73,10 +73,15 @@ async function createSchedule(loanId: string, firstDate: Date | null, count: num
   }
 }
 
+function employeeScopedWhere(role?: Role, employeeId?: string | null) {
+  if (role === Role.EMPLOYEE) return { employeeId: employeeId ?? "__none__" };
+  if (role === Role.DEPARTMENT_MANAGER || role === Role.OPERATIONS_MANAGER) return { employee: { managerId: employeeId ?? "__none__" } };
+  return {};
+}
+
 router.get("/", async (req, res) => {
-  const ownOnly = req.user?.role === Role.EMPLOYEE;
   const loans = await prisma.employeeLoanRequest.findMany({
-    where: { archivedAt: null, ...(ownOnly ? { employeeId: req.user?.employeeId ?? "" } : {}) },
+    where: { archivedAt: null, ...employeeScopedWhere(req.user?.role as Role | undefined, req.user?.employeeId) },
     include: { employee: { include: { department: true } }, repaymentSchedule: true },
     orderBy: { createdAt: "desc" }
   });

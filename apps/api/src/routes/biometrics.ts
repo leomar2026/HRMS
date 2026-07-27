@@ -113,6 +113,34 @@ function workDateForTimezone(date: Date, timezone: string) {
   return new Date(`${year}-${month}-${day}T00:00:00.000Z`);
 }
 
+const knownAttendanceLocations = [
+  { name: "Riyadh", latitude: 24.7136, longitude: 46.6753 },
+  { name: "Jeddah", latitude: 21.4858, longitude: 39.1925 },
+  { name: "Makkah", latitude: 21.3891, longitude: 39.8579 }
+];
+
+function capturedLocationName(latitude: unknown, longitude: unknown) {
+  const lat = Number(latitude);
+  const lon = Number(longitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return "";
+  return knownAttendanceLocations
+    .map((location) => ({
+      name: location.name,
+      distance: distanceMeters({ latitude: lat, longitude: lon }, { latitude: location.latitude, longitude: location.longitude })
+    }))
+    .sort((a, b) => a.distance - b.distance)[0]?.name ?? "";
+}
+
+function gpsPayload(rawPayload: unknown) {
+  const payload = typeof rawPayload === "object" && rawPayload ? rawPayload as Record<string, unknown> : {};
+  return {
+    latitude: payload.latitude ?? "",
+    longitude: payload.longitude ?? "",
+    accuracyMeters: payload.accuracyMeters ?? "",
+    distanceMeters: payload.distanceMeters ?? ""
+  };
+}
+
 router.use(requireAuth);
 
 router.get("/devices", requireRoles(...manageRoles), async (_req, res) => {
@@ -195,14 +223,7 @@ router.post("/mobile-punch", requireRoles(Role.EMPLOYEE, Role.DEPARTMENT_MANAGER
       }))
       .sort((a, b) => a.distance - b.distance)[0];
     const allowedDistance = nearest.device.siteRadiusMeters + (body.accuracyMeters ?? 0);
-    if (nearest.distance > allowedDistance) {
-      return res.status(403).json({
-        message: `GPS location is outside the allowed site radius. Nearest site is ${Math.round(nearest.distance)}m away; allowed radius is ${nearest.device.siteRadiusMeters}m.`,
-        nearestSite: nearest.device.deviceName,
-        distanceMeters: Math.round(nearest.distance),
-        allowedRadiusMeters: nearest.device.siteRadiusMeters
-      });
-    }
+    const outsideAllowedRadius = nearest.distance > allowedDistance;
 
     const identifier = body.employeeIdentifier;
     const employee = req.user?.employeeId
@@ -252,6 +273,9 @@ router.post("/mobile-punch", requireRoles(Role.EMPLOYEE, Role.DEPARTMENT_MANAGER
           longitude: body.longitude,
           accuracyMeters: body.accuracyMeters,
           distanceMeters: Math.round(nearest.distance),
+          capturedLocationName: capturedLocationName(body.latitude, body.longitude),
+          allowedRadiusMeters: nearest.device.siteRadiusMeters,
+          outsideAllowedRadius,
           timezone
         }
       }
@@ -293,6 +317,7 @@ router.post("/mobile-punch", requireRoles(Role.EMPLOYEE, Role.DEPARTMENT_MANAGER
       punchTime: punchTime.toISOString(),
       timezone,
       distanceMeters: Math.round(nearest.distance),
+      warning: outsideAllowedRadius ? `GPS is outside the allowed site radius. Nearest site is ${Math.round(nearest.distance)}m away.` : undefined,
       attendanceRecord
     });
   } catch (error) {
@@ -446,39 +471,71 @@ router.get("/raw-logs", requireRoles(...manageRoles, Role.AUDITOR), async (_req,
 
 router.get("/raw-logs/export.csv", requireRoles(...manageRoles, Role.AUDITOR), async (req, res) => {
   const logs = await prisma.biometricDeviceLog.findMany({ include: { device: true, employee: { include: { department: true } } }, orderBy: { punchTime: "desc" }, take: 5000 });
-  const headers = ["Device", "Device User ID", "Employee ID", "Employee Name", "Department", "Punch Date", "Punch Time", "Punch Type", "Verification Type", "Work Code", "Serial", "IP", "Sync Time", "Raw Reference", "Processing Status", "Error"];
+  const headers = ["Device", "Device User ID", "Employee ID", "Employee Name", "Department", "Punch Date", "Punch Time", "Punch Type", "Verification Type", "GPS Latitude", "GPS Longitude", "GPS Accuracy Meters", "Site Distance Meters", "Work Code", "Serial", "IP", "Sync Time", "Raw Reference", "Processing Status", "Error"];
   await audit(req, "EXPORT", "BiometricDeviceLog", undefined, { format: "CSV", count: logs.length });
-  csvFile(res, "biometric-raw-logs.csv", headers, logs.map((log) => [log.deviceName, log.deviceUserId, log.employee?.employeeCode ?? "", log.employeeName ?? "", log.employee?.department.name ?? "", log.punchDate.toISOString().slice(0, 10), log.punchTime.toISOString(), log.punchType, log.verificationType ?? "", log.workCode ?? "", log.deviceSerialNumber ?? "", log.deviceIp ?? "", log.syncAt.toISOString(), log.rawLogReference, log.processingStatus, log.errorMessage ?? ""]));
+  csvFile(res, "biometric-raw-logs.csv", headers, logs.map((log) => {
+    const gps = gpsPayload(log.rawPayload);
+    return [log.deviceName, log.deviceUserId, log.employee?.employeeCode ?? "", log.employeeName ?? "", log.employee?.department.name ?? "", log.punchDate.toISOString().slice(0, 10), log.punchTime.toISOString(), log.punchType, log.verificationType ?? "", gps.latitude, gps.longitude, gps.accuracyMeters, gps.distanceMeters, log.workCode ?? "", log.deviceSerialNumber ?? "", log.deviceIp ?? "", log.syncAt.toISOString(), log.rawLogReference, log.processingStatus, log.errorMessage ?? ""];
+  }));
 });
 
 router.get("/raw-logs/export.xlsx", requireRoles(...manageRoles, Role.AUDITOR), async (req, res) => {
   const logs = await prisma.biometricDeviceLog.findMany({ include: { device: true, employee: { include: { department: true } } }, orderBy: { punchTime: "desc" }, take: 5000 });
-  const headers = ["Device", "Device User ID", "Employee ID", "Employee Name", "Department", "Punch Date", "Punch Time", "Punch Type", "Verification Type", "Work Code", "Serial", "IP", "Sync Time", "Raw Reference", "Processing Status", "Error"];
+  const headers = ["Device", "Device User ID", "Employee ID", "Employee Name", "Department", "Punch Date", "Punch Time", "Punch Type", "Verification Type", "GPS Latitude", "GPS Longitude", "GPS Accuracy Meters", "Site Distance Meters", "Work Code", "Serial", "IP", "Sync Time", "Raw Reference", "Processing Status", "Error"];
   await audit(req, "EXPORT", "BiometricDeviceLog", undefined, { format: "XLSX", count: logs.length });
-  await xlsxFile(res, "biometric-raw-logs.xlsx", headers, logs.map((log) => [log.deviceName, log.deviceUserId, log.employee?.employeeCode ?? "", log.employeeName ?? "", log.employee?.department.name ?? "", log.punchDate.toISOString().slice(0, 10), log.punchTime.toISOString(), log.punchType, log.verificationType ?? "", log.workCode ?? "", log.deviceSerialNumber ?? "", log.deviceIp ?? "", log.syncAt.toISOString(), log.rawLogReference, log.processingStatus, log.errorMessage ?? ""]), "Raw Logs");
+  await xlsxFile(res, "biometric-raw-logs.xlsx", headers, logs.map((log) => {
+    const gps = gpsPayload(log.rawPayload);
+    return [log.deviceName, log.deviceUserId, log.employee?.employeeCode ?? "", log.employeeName ?? "", log.employee?.department.name ?? "", log.punchDate.toISOString().slice(0, 10), log.punchTime.toISOString(), log.punchType, log.verificationType ?? "", gps.latitude, gps.longitude, gps.accuracyMeters, gps.distanceMeters, log.workCode ?? "", log.deviceSerialNumber ?? "", log.deviceIp ?? "", log.syncAt.toISOString(), log.rawLogReference, log.processingStatus, log.errorMessage ?? ""];
+  }), "Raw Logs");
 });
+
+function rawLogLocationName(rawPayload: unknown) {
+  const raw = typeof rawPayload === "object" && rawPayload ? rawPayload as Record<string, unknown> : {};
+  return String(raw.capturedLocationName ?? (capturedLocationName(raw.latitude, raw.longitude) || ""));
+}
+
+function attendanceCapturedLocations(record: { rawLogs?: Array<{ rawPayload: unknown; punchType: BiometricPunchType; punchTime: Date }> }) {
+  const locationForPunch = (punchType: BiometricPunchType) => {
+    const payload = record.rawLogs?.find((log) => {
+      if (log.punchType !== punchType) return false;
+      const raw = typeof log.rawPayload === "object" && log.rawPayload ? log.rawPayload as Record<string, unknown> : {};
+      return raw.capturedLocationName || (raw.latitude && raw.longitude);
+    })?.rawPayload;
+    return rawLogLocationName(payload);
+  };
+  return {
+    timeInLocationName: locationForPunch(BiometricPunchType.CHECK_IN),
+    timeOutLocationName: locationForPunch(BiometricPunchType.CHECK_OUT)
+  };
+}
 
 router.get("/attendance-records", requireRoles(...manageRoles, Role.ACCOUNTANT, Role.AUDITOR), async (_req, res) => {
   const records = await prisma.attendanceRecord.findMany({
-    include: { employee: { include: { department: true } }, device: true },
+    include: { employee: { include: { department: true } }, device: true, rawLogs: { orderBy: { punchTime: "desc" }, take: 10 } },
     orderBy: [{ workDate: "desc" }, { employee: { employeeCode: "asc" } }],
     take: 500
   });
-  res.json(records);
+  res.json(records.map((record) => ({ ...record, ...attendanceCapturedLocations(record) })));
 });
 
 router.get("/attendance-records/export.csv", requireRoles(...manageRoles, Role.ACCOUNTANT, Role.AUDITOR), async (req, res) => {
-  const records = await prisma.attendanceRecord.findMany({ include: { employee: { include: { department: true } }, device: true }, orderBy: [{ workDate: "desc" }, { employee: { employeeCode: "asc" } }], take: 5000 });
-  const headers = ["Employee ID", "Employee Name", "Department", "Date", "Shift", "First In", "Last Out", "Working Hours", "Late Minutes", "Early Out Minutes", "Overtime Hours", "Status", "Device", "Source", "Approval"];
+  const records = await prisma.attendanceRecord.findMany({ include: { employee: { include: { department: true } }, device: true, rawLogs: { orderBy: { punchTime: "desc" }, take: 10 } }, orderBy: [{ workDate: "desc" }, { employee: { employeeCode: "asc" } }], take: 5000 });
+  const headers = ["Employee ID", "Employee Name", "Department", "Date", "Shift", "First In", "Time In Location", "Last Out", "Time Out Location", "Working Hours", "Late Minutes", "Early Out Minutes", "Overtime Hours", "Status", "Source", "Approval"];
   await audit(req, "EXPORT", "AttendanceRecord", undefined, { format: "CSV", count: records.length });
-  csvFile(res, "biometric-attendance-records.csv", headers, records.map((record) => [record.employee.employeeCode, `${record.employee.firstName} ${record.employee.lastName}`, record.employee.department.name, record.workDate.toISOString().slice(0, 10), record.shift ?? "", record.firstIn?.toISOString() ?? "", record.lastOut?.toISOString() ?? "", record.workingHours, record.lateMinutes, record.earlyOutMinutes, record.overtimeHours, record.attendanceStatus, record.device?.deviceName ?? "", record.source, record.approvalStatus]));
+  csvFile(res, "biometric-attendance-records.csv", headers, records.map((record) => {
+    const locations = attendanceCapturedLocations(record);
+    return [record.employee.employeeCode, `${record.employee.firstName} ${record.employee.lastName}`, record.employee.department.name, record.workDate.toISOString().slice(0, 10), record.shift ?? "", record.firstIn?.toISOString() ?? "", locations.timeInLocationName, record.lastOut?.toISOString() ?? "", locations.timeOutLocationName, record.workingHours, record.lateMinutes, record.earlyOutMinutes, record.overtimeHours, record.attendanceStatus, record.source, record.approvalStatus];
+  }));
 });
 
 router.get("/attendance-records/export.xlsx", requireRoles(...manageRoles, Role.ACCOUNTANT, Role.AUDITOR), async (req, res) => {
-  const records = await prisma.attendanceRecord.findMany({ include: { employee: { include: { department: true } }, device: true }, orderBy: [{ workDate: "desc" }, { employee: { employeeCode: "asc" } }], take: 5000 });
-  const headers = ["Employee ID", "Employee Name", "Department", "Date", "Shift", "First In", "Last Out", "Working Hours", "Late Minutes", "Early Out Minutes", "Overtime Hours", "Status", "Device", "Source", "Approval"];
+  const records = await prisma.attendanceRecord.findMany({ include: { employee: { include: { department: true } }, device: true, rawLogs: { orderBy: { punchTime: "desc" }, take: 10 } }, orderBy: [{ workDate: "desc" }, { employee: { employeeCode: "asc" } }], take: 5000 });
+  const headers = ["Employee ID", "Employee Name", "Department", "Date", "Shift", "First In", "Time In Location", "Last Out", "Time Out Location", "Working Hours", "Late Minutes", "Early Out Minutes", "Overtime Hours", "Status", "Source", "Approval"];
   await audit(req, "EXPORT", "AttendanceRecord", undefined, { format: "XLSX", count: records.length });
-  await xlsxFile(res, "biometric-attendance-records.xlsx", headers, records.map((record) => [record.employee.employeeCode, `${record.employee.firstName} ${record.employee.lastName}`, record.employee.department.name, record.workDate.toISOString().slice(0, 10), record.shift ?? "", record.firstIn?.toISOString() ?? "", record.lastOut?.toISOString() ?? "", String(record.workingHours), record.lateMinutes, record.earlyOutMinutes, String(record.overtimeHours), record.attendanceStatus, record.device?.deviceName ?? "", record.source, record.approvalStatus]), "Attendance");
+  await xlsxFile(res, "biometric-attendance-records.xlsx", headers, records.map((record) => {
+    const locations = attendanceCapturedLocations(record);
+    return [record.employee.employeeCode, `${record.employee.firstName} ${record.employee.lastName}`, record.employee.department.name, record.workDate.toISOString().slice(0, 10), record.shift ?? "", record.firstIn?.toISOString() ?? "", locations.timeInLocationName, record.lastOut?.toISOString() ?? "", locations.timeOutLocationName, String(record.workingHours), record.lateMinutes, record.earlyOutMinutes, String(record.overtimeHours), record.attendanceStatus, record.source, record.approvalStatus];
+  }), "Attendance");
 });
 
 router.get("/sync-history", requireRoles(...manageRoles, Role.AUDITOR), async (_req, res) => {

@@ -12,10 +12,11 @@ type AttendanceRecord = {
   earlyOutMinutes: number;
   overtimeHours: string;
   attendanceStatus: string;
+  timeInLocationName?: string;
+  timeOutLocationName?: string;
   source: string;
   approvalStatus: string;
   employee: { employeeCode: string; firstName: string; lastName: string; department: { name: string } };
-  device?: { deviceName: string };
 };
 
 export default async function BiometricAttendancePage() {
@@ -31,7 +32,7 @@ export default async function BiometricAttendancePage() {
       />
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Employee ID</th><th>Employee Name</th><th>Department</th><th>Date</th><th>Shift</th><th>First In</th><th>Last Out</th><th>Working Hours</th><th>Late</th><th>Early Out</th><th>Overtime</th><th>Status</th><th>Device</th><th>Source</th><th>Approval</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Employee ID</th><th>Employee Name</th><th>Department</th><th>Date</th><th>Shift</th><th>First In</th><th>Time In Location</th><th>Last Out</th><th>Time Out Location</th><th>Working Hours</th><th>Late</th><th>Early Out</th><th>Overtime</th><th>Status</th><th>Source</th><th>Approval</th><th>Actions</th></tr></thead>
           <tbody>
             {records.length ? records.map((record) => (
               <tr key={record.id}>
@@ -41,18 +42,19 @@ export default async function BiometricAttendancePage() {
                 <td>{new Date(record.workDate).toLocaleDateString()}</td>
                 <td>{record.shift ?? "-"}</td>
                 <td>{record.firstIn ? new Date(record.firstIn).toLocaleTimeString() : "-"}</td>
+                <td>{record.timeInLocationName ?? "-"}</td>
                 <td>{record.lastOut ? new Date(record.lastOut).toLocaleTimeString() : "-"}</td>
+                <td>{record.timeOutLocationName ?? "-"}</td>
                 <td>{record.workingHours} h</td>
                 <td>{record.lateMinutes} min</td>
                 <td>{record.earlyOutMinutes} min</td>
                 <td>{record.overtimeHours} h</td>
                 <td><span className={record.attendanceStatus.includes("ABSENT") || record.attendanceStatus.includes("MISSING") ? "status danger" : "status"}>{record.attendanceStatus}</span></td>
-                <td>{record.device?.deviceName ?? "-"}</td>
                 <td>{record.source}</td>
                 <td><span className="status">{record.approvalStatus}</span></td>
                 <td><RowActionMenu actions={[{ label: "View raw logs", href: "/biometric-logs" }, { label: "View mapping", href: "/biometric-mapping" }]} /></td>
               </tr>
-            )) : <tr><td colSpan={16}>No records found.</td></tr>}
+            )) : <tr><td colSpan={17}>No records found.</td></tr>}
           </tbody>
         </table>
       </div>

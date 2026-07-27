@@ -658,6 +658,34 @@ textarea {
   font-size: 12px;
 }
 
+.employee-action-cell {
+  min-width: 96px;
+  white-space: nowrap;
+}
+
+.employee-row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-right: 5px;
+  vertical-align: middle;
+}
+
+.employee-action-cell .button,
+.employee-action-cell .danger-action {
+  min-height: 26px;
+  padding: 4px 7px;
+  font-size: 12px;
+  gap: 4px;
+}
+
+.employee-lifecycle-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  vertical-align: middle;
+}
+
 .manual-appraisal-actions input,
 .manual-appraisal-actions select {
   height: 28px;
@@ -1119,6 +1147,36 @@ textarea {
   width: auto;
 }
 
+.login-error-popup {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  background: rgba(15, 23, 42, 0.35);
+  padding: 16px;
+}
+
+.login-error-card {
+  width: min(360px, 100%);
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  background: #fff;
+  padding: 16px;
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.2);
+}
+
+.login-error-card h2 {
+  margin: 0 0 8px;
+  font-size: 18px;
+  color: #991b1b;
+}
+
+.login-error-card p {
+  margin: 0 0 14px;
+  font-size: 14px;
+}
+
 textarea {
   min-height: 160px;
   resize: vertical;
@@ -1232,6 +1290,37 @@ textarea {
   padding: 14px 16px;
   border-radius: 6px;
   margin-bottom: 16px;
+}
+
+.compact-notice {
+  margin: 8px 0;
+  padding: 9px 10px;
+  font-size: 12px;
+}
+
+.social-connect {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.facebook-page-card {
+  display: grid;
+  gap: 8px;
+}
+
+.facebook-page-profile {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.facebook-page-profile img {
+  width: 56px;
+  height: 56px;
+  border-radius: 8px;
+  object-fit: cover;
+  border: 1px solid var(--line);
 }
 
 .workflow-section {

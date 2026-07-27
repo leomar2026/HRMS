@@ -16,7 +16,7 @@ export default async function EmployeeLoansPage() {
           <thead><tr><th>Request No.</th><th>Type</th><th>Requested</th><th>Approved</th><th>Installments</th><th>Monthly</th><th>Outstanding</th><th>Status</th><th>Request Date</th><th>Actions</th></tr></thead>
           <tbody>
             {loans.map((loan) => <tr key={loan.id}><td>{loan.requestNumber}</td><td>{loan.loanType}</td><td>{loan.requestedAmount}</td><td>{loan.approvedAmount}</td><td>{loan.numberOfInstallments}</td><td>{loan.monthlyInstallmentAmount}</td><td>{loan.outstandingBalance}</td><td><span className="status">{loan.status}</span></td><td>{new Date(loan.createdAt).toLocaleDateString()}</td><td><PrintDocumentActions module="loans" id={loan.id} /><WorkflowDecisionButtons modulePath="loans" id={loan.id} /></td></tr>)}
-            {loans.length === 0 ? <tr><td colSpan={10}>No records found.</td></tr> : null}
+            {loans.length === 0 ? <tr><td colSpan={10}>No loan records found for this employee.</td></tr> : null}
           </tbody>
         </table>
       </div>

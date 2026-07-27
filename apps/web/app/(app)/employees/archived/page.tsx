@@ -1,5 +1,5 @@
 import { TableToolbar } from "@/components/DataTableControls";
-import { ProvisionMissingPortalUsersButton } from "@/components/EmployeeRoleActions";
+import { EmployeeLifecycleActions } from "@/components/EmployeeLifecycleActions";
 import { ProfileAvatar } from "@/components/ProfilePhoto";
 import { apiFetch } from "@/lib/api";
 import Link from "next/link";
@@ -15,6 +15,7 @@ type Employee = {
   photoUrl?: string;
   profilePhotoPath?: string;
   leaveBalance: number;
+  archivedAt?: string;
   department: { name: string };
   user?: { role: string; portalStatus: string } | null;
 };
@@ -26,38 +27,36 @@ type EmployeeResponse = {
   pageSize: number;
 };
 
-export default async function EmployeesPage({ searchParams }: { searchParams: Promise<{ search?: string }> }) {
+export default async function ArchivedEmployeesPage({ searchParams }: { searchParams: Promise<{ search?: string }> }) {
   const params = await searchParams;
   const query = params.search ? `?search=${encodeURIComponent(params.search)}` : "";
-  const response = await apiFetch<EmployeeResponse | Employee[]>(`/employees${query}`);
+  const response = await apiFetch<EmployeeResponse | Employee[]>(`/employees/archived${query}`);
   const employees = Array.isArray(response) ? response : response.items;
   const total = Array.isArray(response) ? response.length : response.total;
 
   return (
     <>
       <TableToolbar
-        title="Employee Master"
+        title="Archived Employees"
         count={`${total} records`}
-        searchPlaceholder="Search employee number, name, email, or national ID"
+        searchPlaceholder="Search archived employee"
         actions={[
-          { label: "Add New", href: "/employees/new", icon: "add", primary: true },
-          { label: "Import", href: "/employee-import", icon: "import" },
-          { label: "Export", href: "/api/backend/employees/export.csv", icon: "export" },
-          { label: "Refresh", href: "/employees", icon: "refresh" },
-          { label: "Groups", href: "/group-management?type=EMPLOYEE", icon: "columns" }
+          { label: "Active Employees", href: "/employees", icon: "refresh" },
+          { label: "Export", href: "/api/backend/employees/archived/export.csv", icon: "export" },
+          { label: "Print", href: "/api/backend/employees/archived/print", icon: "print" },
+          { label: "Refresh", href: "/employees/archived", icon: "refresh" }
         ]}
       />
-      <form className="form-panel" action="/employees">
+      <form className="form-panel" action="/employees/archived">
         <div className="actions">
           <input name="search" placeholder="Search employee number, name, email, or national ID" defaultValue={params.search ?? ""} />
           <button className="button" type="submit">Search</button>
         </div>
-        <ProvisionMissingPortalUsersButton />
       </form>
       <div style={{ height: 16 }} />
       <div className="table-wrap">
         <table>
-          <thead><tr><th><input aria-label="Select all employees" type="checkbox" /></th><th className="freeze-col">ID</th><th>Name</th><th>Email</th><th>Department</th><th>Job title</th><th>User Role</th><th>Portal</th><th>Leave</th><th>Status</th><th>Actions</th></tr></thead>
+          <thead><tr><th><input aria-label="Select archived employees" type="checkbox" /></th><th className="freeze-col">ID</th><th>Name</th><th>Email</th><th>Department</th><th>Job title</th><th>Status</th><th>Archived</th><th>Actions</th></tr></thead>
           <tbody>
             {employees.map((employee) => (
               <tr key={employee.id}>
@@ -67,17 +66,20 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
                 <td>{employee.email}</td>
                 <td>{employee.department.name}</td>
                 <td>{employee.jobTitle}</td>
-                <td><span className="status">{(employee.user?.role ?? "NO USER").replace(/_/g, " ")}</span></td>
-                <td><span className={employee.user ? "status" : "status warn"}>{employee.user?.portalStatus ?? "NO USER"}</span></td>
-                <td>{employee.leaveBalance}</td>
-                <td><span className="status">{employee.status}</span></td>
+                <td><span className="status warn">{employee.status}</span></td>
+                <td>{employee.archivedAt ? new Date(employee.archivedAt).toLocaleDateString() : "-"}</td>
                 <td className="employee-action-cell">
                   <div className="employee-row-actions">
-                    <Link className="button small" href={`/employees/${employee.id}`}>View/Edit</Link>
+                    <Link className="button small" href={`/employees/${employee.id}`}>View</Link>
+                    <a className="button small secondary" href={`/api/backend/print-documents/employees/${employee.id}/preview`}>Print</a>
+                    <a className="button small secondary" href={`/api/backend/print-documents/employees/${employee.id}/pdf`}>PDF</a>
+                    <Link className="button small secondary" href={`/audit-logs?entity=Employee&entityId=${employee.id}`}>Audit</Link>
                   </div>
+                  <EmployeeLifecycleActions employeeId={employee.id} employeeCode={employee.employeeCode} archived />
                 </td>
               </tr>
             ))}
+            {employees.length === 0 ? <tr><td colSpan={9}>No records found.</td></tr> : null}
           </tbody>
         </table>
       </div>

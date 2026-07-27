@@ -10,6 +10,11 @@ type Department = {
   code: string;
 };
 
+type SelectOption = {
+  label: string;
+  value: string;
+};
+
 type Employee = {
   id: string;
   employeeCode: string;
@@ -33,6 +38,10 @@ type Employee = {
   branch?: string;
   location?: string;
   managerId?: string;
+  departmentHeadId?: string;
+  omId?: string;
+  hrManagerId?: string;
+  alternateManagerId?: string;
   employeeType?: string;
   contractType?: string;
   joiningDate: string;
@@ -42,16 +51,102 @@ type Employee = {
   transportAllowance?: string | number;
   otherAllowance?: string | number;
   leaveBalance: number;
+  user?: { role?: string; portalStatus?: string } | null;
 };
+
+type EmployeeOption = {
+  id: string;
+  employeeCode: string;
+  firstName: string;
+  lastName: string;
+};
+
+type ReportingSetup = {
+  departmentHeadId?: string | null;
+  reportingManagerId?: string | null;
+  omId?: string | null;
+  hrManagerId?: string | null;
+  backupManagerId?: string | null;
+};
+
+const employeeRoles = [
+  "EMPLOYEE",
+  "DEPARTMENT_MANAGER",
+  "OPERATIONS_MANAGER",
+  "HR_MANAGER",
+  "HR_OFFICER",
+  "HR",
+  "PAYROLL_OFFICER",
+  "ACCOUNTANT",
+  "FINANCE",
+  "AUDITOR",
+  "ADMIN",
+  "SUPER_ADMIN"
+];
 
 function optionalText(value: FormDataEntryValue | null) {
   const text = String(value ?? "").trim();
   return text || undefined;
 }
 
-export function EmployeeCreateForm({ departments }: { departments: Department[] }) {
+function EmployeeSelect({ name, label, value, employees, excludeId, onChange }: { name: string; label: string; value: string; employees: EmployeeOption[]; excludeId?: string; onChange: (value: string) => void }) {
+  return (
+    <label className="field">
+      <span>{label}</span>
+      <select name={name} value={value} onChange={(event) => onChange(event.target.value)}>
+        <option value="">Select employee</option>
+        {employees.filter((employee) => employee.id !== excludeId).map((employee) => <option key={employee.id} value={employee.id}>{employee.employeeCode} - {employee.firstName} {employee.lastName}</option>)}
+      </select>
+    </label>
+  );
+}
+
+export function EmployeeCreateForm({
+  departments,
+  managers,
+  jobTitles,
+  branches,
+  locations,
+  employeeTypes,
+  contractTypes
+}: {
+  departments: Department[];
+  managers: EmployeeOption[];
+  jobTitles: SelectOption[];
+  branches: SelectOption[];
+  locations: SelectOption[];
+  employeeTypes: SelectOption[];
+  contractTypes: SelectOption[];
+}) {
   const router = useRouter();
   const [message, setMessage] = useState("");
+  const [managerId, setManagerId] = useState("");
+  const [departmentHeadId, setDepartmentHeadId] = useState("");
+  const [omId, setOmId] = useState("");
+  const [hrManagerId, setHrManagerId] = useState("");
+  const [alternateManagerId, setAlternateManagerId] = useState("");
+
+  async function loadReportingSetup(departmentId: string, branch = "") {
+    if (!departmentId) return;
+    const query = branch ? `?branch=${encodeURIComponent(branch)}` : "";
+    const response = await fetch(`/api/backend/departments/${departmentId}/reporting-setup/active${query}`);
+    if (!response.ok) {
+      setMessage("No reporting setup found for this department. Please select a reporting manager.");
+      setManagerId("");
+      setDepartmentHeadId("");
+      setOmId("");
+      setHrManagerId("");
+      setAlternateManagerId("");
+      return;
+    }
+    const setup = await response.json() as ReportingSetup;
+    setManagerId(setup.reportingManagerId ?? setup.departmentHeadId ?? "");
+    setDepartmentHeadId(setup.departmentHeadId ?? "");
+    setOmId(setup.omId ?? "");
+    setHrManagerId(setup.hrManagerId ?? "");
+    setAlternateManagerId(setup.backupManagerId ?? "");
+    setMessage("Department reporting setup loaded.");
+  }
 
   async function submit(formData: FormData) {
     setMessage("");
@@ -69,6 +164,11 @@ export function EmployeeCreateForm({ departments }: { departments: Department[] 
       jobTitle: formData.get("jobTitle"),
       branch: optionalText(formData.get("branch")),
       location: optionalText(formData.get("location")),
+      managerId: optionalText(formData.get("managerId")),
+      departmentHeadId: optionalText(formData.get("departmentHeadId")),
+      omId: optionalText(formData.get("omId")),
+      hrManagerId: optionalText(formData.get("hrManagerId")),
+      alternateManagerId: optionalText(formData.get("alternateManagerId")),
       employeeType: optionalText(formData.get("employeeType")),
       contractType: optionalText(formData.get("contractType")),
       joiningDate: formData.get("joiningDate"),
@@ -78,8 +178,7 @@ export function EmployeeCreateForm({ departments }: { departments: Department[] 
       transportAllowance: formData.get("transportAllowance") || 0,
       otherAllowance: formData.get("otherAllowance") || 0,
       leaveBalance: formData.get("leaveBalance") || 21,
-      role: formData.get("role"),
-      password: optionalText(formData.get("password"))
+      role: formData.get("role")
     };
 
     const response = await fetch("/api/backend/employees", {
@@ -110,12 +209,17 @@ export function EmployeeCreateForm({ departments }: { departments: Department[] 
         <label className="field"><span>Mobile number</span><input name="phone" /></label>
         <label className="field"><span>Emergency contact</span><input name="emergencyContact" /></label>
         <label className="field"><span>Address</span><input name="address" /></label>
-        <label className="field"><span>Department</span><select name="departmentId" required>{departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}</select></label>
-        <label className="field"><span>Job title</span><input name="jobTitle" required /></label>
-        <label className="field"><span>Branch</span><input name="branch" /></label>
-        <label className="field"><span>Location</span><input name="location" /></label>
-        <label className="field"><span>Employee type</span><input name="employeeType" placeholder="Full-time" /></label>
-        <label className="field"><span>Contract type</span><input name="contractType" placeholder="Unlimited" /></label>
+        <label className="field"><span>Department</span><select name="departmentId" required onChange={(event) => loadReportingSetup(event.target.value)}><option value="">Select department</option>{departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}</select></label>
+        <label className="field"><span>Job title</span><select name="jobTitle" required><option value="">Select job title</option>{jobTitles.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+        <label className="field"><span>Branch</span><select name="branch"><option value="">Select branch</option>{branches.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+        <label className="field"><span>Location</span><select name="location"><option value="">Select location</option>{locations.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+        <EmployeeSelect name="managerId" label="Reporting manager" value={managerId} employees={managers} onChange={setManagerId} />
+        <EmployeeSelect name="departmentHeadId" label="Department head" value={departmentHeadId} employees={managers} onChange={setDepartmentHeadId} />
+        <EmployeeSelect name="omId" label="OM approver" value={omId} employees={managers} onChange={setOmId} />
+        <EmployeeSelect name="hrManagerId" label="HR manager" value={hrManagerId} employees={managers} onChange={setHrManagerId} />
+        <EmployeeSelect name="alternateManagerId" label="Backup manager" value={alternateManagerId} employees={managers} onChange={setAlternateManagerId} />
+        <label className="field"><span>Employee type</span><select name="employeeType"><option value="">Select employee type</option>{employeeTypes.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+        <label className="field"><span>Contract type</span><select name="contractType"><option value="">Select contract type</option>{contractTypes.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
         <label className="field"><span>Joining date</span><input name="joiningDate" type="date" required /></label>
         <label className="field"><span>Basic salary</span><input name="basicSalary" type="number" min="0" step="0.01" required /></label>
         <label className="field"><span>Housing allowance</span><input name="housingAllowance" type="number" min="0" step="0.01" defaultValue="0" /></label>
@@ -123,7 +227,7 @@ export function EmployeeCreateForm({ departments }: { departments: Department[] 
         <label className="field"><span>Other allowance</span><input name="otherAllowance" type="number" min="0" step="0.01" defaultValue="0" /></label>
         <label className="field"><span>Leave balance</span><input name="leaveBalance" type="number" min="0" defaultValue="21" /></label>
         <label className="field"><span>User role</span><select name="role" defaultValue="EMPLOYEE"><option>EMPLOYEE</option><option>DEPARTMENT_MANAGER</option><option>OPERATIONS_MANAGER</option><option>HR</option><option>HR_OFFICER</option><option>HR_MANAGER</option><option>ACCOUNTANT</option><option>FINANCE</option></select></label>
-        <label className="field"><span>Temporary password</span><input name="password" type="password" placeholder="Optional" /></label>
+        <label className="field"><span>Initial portal password</span><input value="Employee code" readOnly /></label>
       </div>
       <div className="actions">
         <button className="button" type="submit"><Save size={16} /> Save Employee</button>
@@ -134,16 +238,33 @@ export function EmployeeCreateForm({ departments }: { departments: Department[] 
   );
 }
 
-export function EmployeeAdminEditForm({ employee, departments, managers }: { employee: Employee; departments: Department[]; managers: Employee[] }) {
+export function EmployeeAdminEditForm({ employee, departments, managers }: { employee: Employee; departments: Department[]; managers: EmployeeOption[] }) {
   const router = useRouter();
   const [message, setMessage] = useState("");
+  const [managerId, setManagerId] = useState(employee.managerId ?? "");
+  const [departmentHeadId, setDepartmentHeadId] = useState(employee.departmentHeadId ?? "");
+  const [omId, setOmId] = useState(employee.omId ?? "");
+  const [hrManagerId, setHrManagerId] = useState(employee.hrManagerId ?? "");
+  const [alternateManagerId, setAlternateManagerId] = useState(employee.alternateManagerId ?? "");
 
-  async function submit(formData: FormData) {
-    const changeReason = optionalText(formData.get("changeReason"));
-    if (!changeReason) {
-      setMessage("Reason for change is required.");
+  async function loadReportingSetup(departmentId: string, branch = "") {
+    if (!departmentId) return;
+    const query = branch ? `?branch=${encodeURIComponent(branch)}` : "";
+    const response = await fetch(`/api/backend/departments/${departmentId}/reporting-setup/active${query}`);
+    if (!response.ok) {
+      setMessage("No reporting setup found for this department. Existing reporting values were kept.");
       return;
     }
+    const setup = await response.json() as ReportingSetup;
+    setManagerId(setup.reportingManagerId ?? setup.departmentHeadId ?? "");
+    setDepartmentHeadId(setup.departmentHeadId ?? "");
+    setOmId(setup.omId ?? "");
+    setHrManagerId(setup.hrManagerId ?? "");
+    setAlternateManagerId(setup.backupManagerId ?? "");
+    setMessage("Department reporting setup loaded.");
+  }
+
+  async function submit(formData: FormData) {
     const response = await fetch(`/api/backend/employees/${employee.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -168,6 +289,10 @@ export function EmployeeAdminEditForm({ employee, departments, managers }: { emp
         branch: optionalText(formData.get("branch")),
         location: optionalText(formData.get("location")),
         managerId: optionalText(formData.get("managerId")),
+        departmentHeadId: optionalText(formData.get("departmentHeadId")),
+        omId: optionalText(formData.get("omId")),
+        hrManagerId: optionalText(formData.get("hrManagerId")),
+        alternateManagerId: optionalText(formData.get("alternateManagerId")),
         employeeType: optionalText(formData.get("employeeType")),
         contractType: optionalText(formData.get("contractType")),
         joiningDate: formData.get("joiningDate"),
@@ -177,7 +302,8 @@ export function EmployeeAdminEditForm({ employee, departments, managers }: { emp
         transportAllowance: formData.get("transportAllowance") || 0,
         otherAllowance: formData.get("otherAllowance") || 0,
         leaveBalance: formData.get("leaveBalance") || 0,
-        changeReason
+        role: formData.get("role"),
+        portalStatus: formData.get("portalStatus")
       })
     });
     const data = await response.json().catch(() => ({}));
@@ -186,6 +312,7 @@ export function EmployeeAdminEditForm({ employee, departments, managers }: { emp
       return;
     }
     setMessage("Employee updated.");
+    router.push("/employees");
     router.refresh();
   }
 
@@ -239,8 +366,12 @@ export function EmployeeAdminEditForm({ employee, departments, managers }: { emp
           <label className="field"><span>Mobile number</span><input name="phone" defaultValue={employee.phone ?? ""} /></label>
           <label className="field"><span>Emergency contact</span><input name="emergencyContact" defaultValue={employee.emergencyContact ?? ""} /></label>
           <label className="field"><span>Address</span><input name="address" defaultValue={employee.address ?? ""} /></label>
-          <label className="field"><span>Department</span><select name="departmentId" defaultValue={employee.departmentId} required>{departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}</select></label>
-          <label className="field"><span>Assigned manager</span><select name="managerId" defaultValue={employee.managerId ?? ""}><option value="">No manager</option>{managers.filter((manager) => manager.id !== employee.id).map((manager) => <option key={manager.id} value={manager.id}>{manager.employeeCode} - {manager.firstName} {manager.lastName}</option>)}</select></label>
+          <label className="field"><span>Department</span><select name="departmentId" defaultValue={employee.departmentId} required onChange={(event) => loadReportingSetup(event.target.value)}>{departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}</select></label>
+          <EmployeeSelect name="managerId" label="Reporting manager" value={managerId} employees={managers} excludeId={employee.id} onChange={setManagerId} />
+          <EmployeeSelect name="departmentHeadId" label="Department head" value={departmentHeadId} employees={managers} excludeId={employee.id} onChange={setDepartmentHeadId} />
+          <EmployeeSelect name="omId" label="OM approver" value={omId} employees={managers} excludeId={employee.id} onChange={setOmId} />
+          <EmployeeSelect name="hrManagerId" label="HR manager" value={hrManagerId} employees={managers} excludeId={employee.id} onChange={setHrManagerId} />
+          <EmployeeSelect name="alternateManagerId" label="Backup manager" value={alternateManagerId} employees={managers} excludeId={employee.id} onChange={setAlternateManagerId} />
           <label className="field"><span>Job title</span><input name="jobTitle" defaultValue={employee.jobTitle} required /></label>
           <label className="field"><span>Branch</span><input name="branch" defaultValue={employee.branch ?? ""} /></label>
           <label className="field"><span>Location</span><input name="location" defaultValue={employee.location ?? ""} /></label>
@@ -252,6 +383,8 @@ export function EmployeeAdminEditForm({ employee, departments, managers }: { emp
           <label className="field"><span>Transport allowance</span><input name="transportAllowance" type="number" min="0" step="0.01" defaultValue={String(employee.transportAllowance ?? 0)} /></label>
           <label className="field"><span>Other allowance</span><input name="otherAllowance" type="number" min="0" step="0.01" defaultValue={String(employee.otherAllowance ?? 0)} /></label>
           <label className="field"><span>Leave balance</span><input name="leaveBalance" type="number" min="0" defaultValue={employee.leaveBalance} /></label>
+          <label className="field"><span>User role</span><select name="role" defaultValue={employee.user?.role ?? "EMPLOYEE"}>{employeeRoles.map((role) => <option key={role} value={role}>{role.replace(/_/g, " ")}</option>)}</select></label>
+          <label className="field"><span>Portal status</span><select name="portalStatus" defaultValue={employee.user?.portalStatus ?? "PENDING_FIRST_LOGIN"}><option value="ACTIVE">Active</option><option value="PENDING_FIRST_LOGIN">First Login</option><option value="PASSWORD_RESET_REQUIRED">Reset Required</option><option value="DISABLED">Disabled</option></select></label>
           <label className="field"><span>Passport number</span><input name="passportNumber" defaultValue={employee.passportNumber ?? ""} /></label>
           <label className="field"><span>GOSI number</span><input name="gosiNumber" defaultValue={employee.gosiNumber ?? ""} /></label>
           <label className="field"><span>QIWA reference</span><input name="qiwaReference" defaultValue={employee.qiwaReference ?? ""} /></label>
@@ -260,7 +393,6 @@ export function EmployeeAdminEditForm({ employee, departments, managers }: { emp
           <label className="field"><span>Biometric ID</span><input name="biometricId" defaultValue={employee.biometricId ?? ""} /></label>
           <label className="field"><span>Device user ID</span><input name="deviceUserId" defaultValue={employee.deviceUserId ?? ""} /></label>
         </div>
-        <label className="field"><span>Reason for change</span><textarea name="changeReason" required placeholder="Required for admin edit, override, leave balance, salary, manager, or confidential-data changes." /></label>
         <div className="actions">
           <button className="button" type="submit"><Save size={16} /> Save Employee Changes</button>
           <a className="button secondary" href="/employees">Back</a>

@@ -49,7 +49,7 @@ function decodeJwtPayload(token?: string) {
   try {
     const payload = token.split(".")[1];
     const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
-    return JSON.parse(atob(normalized)) as { role?: string };
+    return JSON.parse(atob(normalized)) as { role?: string; passwordChangeRequired?: boolean };
   } catch {
     return null;
   }
@@ -57,7 +57,9 @@ function decodeJwtPayload(token?: string) {
 
 export function proxy(request: NextRequest) {
   const token = request.cookies.get("hrms_token")?.value;
-  const role = decodeJwtPayload(token)?.role;
+  const payload = decodeJwtPayload(token);
+  const role = payload?.role;
+  const passwordChangeRequired = Boolean(payload?.passwordChangeRequired);
   const path = request.nextUrl.pathname;
   const isProtected =
     adminPaths.some((adminPath) => path === adminPath || path.startsWith(`${adminPath}/`)) ||
@@ -74,8 +76,18 @@ export function proxy(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
+  if (token && passwordChangeRequired && isProtected) {
+    const response = NextResponse.redirect(new URL("/change-password", request.url));
+    response.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    return response;
+  }
+
   if (role && role !== "EMPLOYEE" && employeeSharedPaths.some((employeePath) => path === employeePath || path.startsWith(`${employeePath}/`))) {
     return NextResponse.redirect(new URL("/mobile-attendance", request.url));
+  }
+
+  if (role === "EMPLOYEE" && (path === "/mobile-attendance" || path.startsWith("/mobile-attendance/"))) {
+    return NextResponse.redirect(new URL("/employee/mobile-attendance", request.url));
   }
 
   if (role === "EMPLOYEE" && adminPaths.some((adminPath) => path === adminPath || path.startsWith(`${adminPath}/`))) {
@@ -98,7 +110,9 @@ export function proxy(request: NextRequest) {
     return NextResponse.redirect(new URL("/dashboard", request.url));
   }
 
-  return NextResponse.next();
+  const response = NextResponse.next();
+  if (isProtected) response.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  return response;
 }
 
 export const config = {

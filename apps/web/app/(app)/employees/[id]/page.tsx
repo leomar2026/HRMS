@@ -45,6 +45,7 @@ type Employee = {
   photoUrl?: string;
   profilePhotoPath?: string;
   profilePhotoStatus?: string;
+  user?: { role?: string; portalStatus?: string } | null;
 };
 
 type EmployeeResponse = {

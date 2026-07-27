@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { Role } from "@prisma/client";
+import { EmploymentStatus, Role } from "@prisma/client";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
@@ -50,6 +50,10 @@ const employeeSchema = z.object({
   branch: z.string().optional(),
   location: z.string().optional(),
   managerId: z.string().optional(),
+  departmentHeadId: z.string().optional(),
+  omId: z.string().optional(),
+  hrManagerId: z.string().optional(),
+  alternateManagerId: z.string().optional(),
   employeeType: z.string().optional(),
   contractType: z.string().optional(),
   contractExpiryDate: z.coerce.date().optional(),
@@ -70,7 +74,9 @@ const employeeSchema = z.object({
 });
 
 const updateEmployeeSchema = employeeSchema.partial().omit({ password: true, role: true }).extend({
-  changeReason: z.string().min(3).optional()
+  changeReason: z.string().min(3).optional(),
+  role: z.nativeEnum(Role).optional(),
+  portalStatus: z.enum(["ACTIVE", "PENDING_FIRST_LOGIN", "PASSWORD_RESET_REQUIRED", "DISABLED"]).optional()
 });
 
 const userRoleSchema = z.object({
@@ -124,11 +130,89 @@ const privilegedRoles = [
 
 const writeRoles = [Role.SUPER_ADMIN, Role.ADMIN, Role.HR_MANAGER, Role.HR_OFFICER, Role.HR];
 
+async function activeDepartmentReportingSetup(departmentId: string, branch?: string | null) {
+  const today = new Date();
+  const setup = await prisma.departmentReportingSetup.findFirst({
+    where: {
+      departmentId,
+      status: "ACTIVE",
+      AND: [
+        { effectiveStartDate: { lte: today } },
+        { OR: [{ effectiveEndDate: null }, { effectiveEndDate: { gte: today } }] },
+        ...(branch ? [{ OR: [{ branch }, { branch: null }, { branch: "" }] }] : [])
+      ]
+    },
+    orderBy: [{ branch: "desc" }, { effectiveStartDate: "desc" }]
+  });
+  if (setup) return setup;
+  const department = await prisma.department.findUnique({ where: { id: departmentId } });
+  if (!department?.defaultReportingManagerId && !department?.departmentHeadId) return null;
+  return {
+    departmentHeadId: department.departmentHeadId,
+    reportingManagerId: department.defaultReportingManagerId,
+    omId: department.omId,
+    hrManagerId: department.hrManagerId,
+    backupManagerId: null
+  };
+}
+
+function applyReportingSetup<T extends { departmentId: string; branch?: string | null; managerId?: string; departmentHeadId?: string; omId?: string; hrManagerId?: string; alternateManagerId?: string }>(
+  employeeData: T,
+  setup: Awaited<ReturnType<typeof activeDepartmentReportingSetup>>
+) {
+  if (!setup) return employeeData;
+  return {
+    ...employeeData,
+    managerId: employeeData.managerId || setup.reportingManagerId || setup.departmentHeadId || undefined,
+    departmentHeadId: employeeData.departmentHeadId || setup.departmentHeadId || undefined,
+    omId: employeeData.omId || setup.omId || undefined,
+    hrManagerId: employeeData.hrManagerId || setup.hrManagerId || undefined,
+    alternateManagerId: employeeData.alternateManagerId || setup.backupManagerId || undefined
+  };
+}
+
+const employeeDependencyCounters = [
+  ["Attendance", (id: string) => prisma.attendance.count({ where: { employeeId: id } })],
+  ["Biometric logs", (id: string) => prisma.biometricDeviceLog.count({ where: { employeeId: id } })],
+  ["Biometric mappings", (id: string) => prisma.biometricEmployeeMapping.count({ where: { employeeId: id } })],
+  ["Attendance records", (id: string) => prisma.attendanceRecord.count({ where: { employeeId: id } })],
+  ["Attendance adjustments", (id: string) => prisma.attendanceAdjustmentRequest.count({ where: { employeeId: id } })],
+  ["Leave requests", (id: string) => prisma.leaveRequest.count({ where: { OR: [{ employeeId: id }, { managerId: id }] } })],
+  ["Ticket requests", (id: string) => prisma.ticketRequest.count({ where: { employeeId: id } })],
+  ["Petty cash requests", (id: string) => prisma.pettyCashRequest.count({ where: { employeeId: id } })],
+  ["Payroll records", (id: string) => prisma.payrollItem.count({ where: { employeeId: id } })],
+  ["Payroll upload records", (id: string) => prisma.payrollUploadItem.count({ where: { employeeId: id } })],
+  ["Leave balance records", (id: string) => prisma.leaveBalanceUploadItem.count({ where: { employeeId: id } })],
+  ["Documents", (id: string) => prisma.employeeDocument.count({ where: { employeeId: id } })],
+  ["Groups", (id: string) => prisma.groupMember.count({ where: { employeeId: id } })],
+  ["Business trips", (id: string) => prisma.businessTripRequest.count({ where: { employeeId: id } })],
+  ["Trip expense claims", (id: string) => prisma.tripExpenseClaim.count({ where: { employeeId: id } })],
+  ["Loans", (id: string) => prisma.employeeLoanRequest.count({ where: { employeeId: id } })],
+  ["Performance appraisals", (id: string) => prisma.performanceAppraisal.count({ where: { employeeId: id } })],
+  ["Manual appraisals", (id: string) => prisma.manualAppraisal.count({ where: { employeeId: id } })],
+  ["Salary history", (id: string) => prisma.employeeSalaryHistory.count({ where: { employeeId: id } })],
+  ["Resignations", (id: string) => prisma.resignationRequest.count({ where: { employeeId: id } })],
+  ["Exit clearance", (id: string) => prisma.exitClearanceItem.count({ where: { employeeId: id } })],
+  ["Final settlements", (id: string) => prisma.finalSettlement.count({ where: { employeeId: id } })],
+  ["Direct reports", (id: string) => prisma.employee.count({ where: { managerId: id, archivedAt: null } })],
+  ["Notifications", (id: string) => prisma.notification.count({ where: { employeeId: id } })]
+] as const;
+
+async function employeeDependencySummary(id: string) {
+  const counts = await Promise.all(employeeDependencyCounters.map(async ([label, count]) => ({ label, count: await count(id) })));
+  const related = counts.filter((item) => item.count > 0);
+  return {
+    related,
+    total: related.reduce((sum, item) => sum + item.count, 0)
+  };
+}
+
 router.use(requireAuth);
 
 function employeeWhere(query: z.infer<typeof querySchema>) {
   return {
     archivedAt: null,
+    isActive: true,
     ...(query.departmentId ? { departmentId: query.departmentId } : {}),
     ...(query.status ? { status: query.status as never } : {}),
     ...(query.search
@@ -166,6 +250,94 @@ router.get("/", requireRoles(...privilegedRoles), async (req, res) => {
     prisma.employee.count({ where })
   ]);
   res.json({ items, total, page: query.page, pageSize: query.pageSize });
+});
+
+router.get("/archived", requireRoles(...privilegedRoles), async (req, res) => {
+  const query = querySchema.parse(req.query);
+  const where = {
+    archivedAt: { not: null },
+    ...(query.departmentId ? { departmentId: query.departmentId } : {}),
+    ...(query.search
+      ? {
+          OR: [
+            { employeeCode: { contains: query.search, mode: "insensitive" as const } },
+            { firstName: { contains: query.search, mode: "insensitive" as const } },
+            { lastName: { contains: query.search, mode: "insensitive" as const } },
+            { email: { contains: query.search, mode: "insensitive" as const } },
+            { nationalId: { contains: query.search, mode: "insensitive" as const } }
+          ]
+        }
+      : {})
+  };
+  const [items, total] = await Promise.all([
+    prisma.employee.findMany({
+      where,
+      include: { department: true, manager: true, user: true },
+      orderBy: { archivedAt: "desc" },
+      skip: (query.page - 1) * query.pageSize,
+      take: query.pageSize
+    }),
+    prisma.employee.count({ where })
+  ]);
+  res.json({ items, total, page: query.page, pageSize: query.pageSize });
+});
+
+router.get("/archived/export.csv", requireRoles(...privilegedRoles), async (req, res) => {
+  const query = querySchema.parse(req.query);
+  const employees = await prisma.employee.findMany({
+    where: {
+      archivedAt: { not: null },
+      ...(query.search
+        ? {
+            OR: [
+              { employeeCode: { contains: query.search, mode: "insensitive" as const } },
+              { firstName: { contains: query.search, mode: "insensitive" as const } },
+              { lastName: { contains: query.search, mode: "insensitive" as const } },
+              { email: { contains: query.search, mode: "insensitive" as const } }
+            ]
+          }
+        : {})
+    },
+    include: { department: true },
+    orderBy: { archivedAt: "desc" }
+  });
+  const headers = ["employeeCode", "fullName", "email", "department", "jobTitle", "status", "archivedAt"];
+  const rows = employees.map((employee) => [
+    employee.employeeCode,
+    `${employee.firstName} ${employee.lastName}`,
+    employee.email,
+    employee.department.name,
+    employee.jobTitle,
+    employee.status,
+    employee.archivedAt?.toISOString() ?? ""
+  ]);
+  await audit(req, "EXPORT_ARCHIVED", "Employee", undefined, { format: "CSV", count: employees.length, filters: query });
+  csvFile(res, "archived-employees.csv", headers, rows);
+});
+
+router.get("/archived/print", requireRoles(...privilegedRoles), async (req, res) => {
+  const query = querySchema.parse(req.query);
+  const employees = await prisma.employee.findMany({
+    where: {
+      archivedAt: { not: null },
+      ...(query.search
+        ? {
+            OR: [
+              { employeeCode: { contains: query.search, mode: "insensitive" as const } },
+              { firstName: { contains: query.search, mode: "insensitive" as const } },
+              { lastName: { contains: query.search, mode: "insensitive" as const } },
+              { email: { contains: query.search, mode: "insensitive" as const } }
+            ]
+          }
+        : {})
+    },
+    include: { department: true },
+    orderBy: { archivedAt: "desc" }
+  });
+  const company = await getCurrentCompanyProfile();
+  await audit(req, "PRINT_ARCHIVED", "Employee", undefined, { count: employees.length, filters: query });
+  res.header("Content-Type", "text/html");
+  res.send(`<!doctype html><html><head><title>Archived Employees</title><style>body{font-family:Arial;margin:24px;color:#172033}table{width:100%;border-collapse:collapse;font-size:12px}th,td{border:1px solid #dfe4ec;padding:7px;text-align:left}th{background:#f3f5f8}</style></head><body>${companyPrintHeader(company, "Archived Employees")}<table><thead><tr><th>ID</th><th>Name</th><th>Email</th><th>Department</th><th>Job Title</th><th>Status</th><th>Archived</th></tr></thead><tbody>${employees.map((employee) => `<tr><td>${employee.employeeCode}</td><td>${employee.firstName} ${employee.lastName}</td><td>${employee.email}</td><td>${employee.department.name}</td><td>${employee.jobTitle}</td><td>${employee.status}</td><td>${employee.archivedAt?.toISOString().slice(0, 10) ?? ""}</td></tr>`).join("")}</tbody></table><script>window.print()</script></body></html>`);
 });
 
 router.get("/me", async (req, res) => {
@@ -343,17 +515,22 @@ router.post("/", requireRoles(...writeRoles), async (req, res, next) => {
   try {
     const body = employeeSchema.parse(req.body);
     const { role, password, ...employeeData } = body;
-    const employee = await prisma.employee.create({ data: employeeData });
+    const setup = await activeDepartmentReportingSetup(employeeData.departmentId, employeeData.branch);
+    const data = applyReportingSetup(employeeData, setup);
+    if (!data.managerId) {
+      return res.status(400).json({ message: "No reporting manager defined for this department. Please configure Department Reporting Setup." });
+    }
+    const employee = await prisma.employee.create({ data });
 
     await prisma.user.create({
       data: {
         email: body.email,
-        passwordHash: await bcrypt.hash(password ?? crypto.randomUUID(), env.BCRYPT_ROUNDS),
+        passwordHash: await bcrypt.hash(password ?? body.employeeCode, env.BCRYPT_ROUNDS),
         role,
         employeeId: employee.id,
-        portalStatus: role === Role.EMPLOYEE ? "PENDING_FIRST_LOGIN" : "ACTIVE",
+        portalStatus: "PENDING_FIRST_LOGIN",
         firstLoginRequired: true,
-        passwordResetRequired: Boolean(password),
+        passwordResetRequired: false,
         forcePasswordChange: true
       }
     });
@@ -369,16 +546,45 @@ router.patch("/:id", requireRoles(...writeRoles), async (req, res, next) => {
   try {
     const id = String(req.params.id);
     const body = updateEmployeeSchema.parse(req.body);
-    const { changeReason, ...employeeBody } = body;
-    const overrideFields = ["managerId", "departmentId", "branch", "location", "leaveBalance", "basicSalary", "housingAllowance", "transportAllowance", "otherAllowance", "bankName", "iban", "passportNumber", "nationalId", "gosiNumber", "qiwaReference"];
+    const { changeReason, role, portalStatus, ...employeeBody } = body;
+    const overrideFields = ["managerId", "departmentHeadId", "omId", "hrManagerId", "alternateManagerId", "departmentId", "branch", "location", "leaveBalance", "basicSalary", "housingAllowance", "transportAllowance", "otherAllowance", "bankName", "iban", "passportNumber", "nationalId", "gosiNumber", "qiwaReference"];
     const changedOverrideFields = overrideFields.filter((field) => Object.prototype.hasOwnProperty.call(employeeBody, field));
-    if (changedOverrideFields.length && !changeReason) {
-      return res.status(400).json({ message: "Reason for change is required for admin override or confidential employee updates." });
-    }
     const previous = await prisma.employee.findUnique({ where: { id } });
     if (!previous) return res.status(404).json({ message: "Employee not found" });
-    const employee = await prisma.employee.update({ where: { id }, data: employeeBody, include: { department: true, manager: true, documents: true, user: true } });
-    await audit(req, "UPDATE", "Employee", id, { fields: Object.keys(employeeBody), reason: changeReason, overrideFields: changedOverrideFields }, previous, employee);
+    if (employeeBody.managerId === id || employeeBody.departmentHeadId === id || employeeBody.omId === id || employeeBody.hrManagerId === id || employeeBody.alternateManagerId === id) {
+      return res.status(400).json({ message: "Employee cannot report to themselves." });
+    }
+    const mergedDepartmentId = employeeBody.departmentId ?? previous.departmentId;
+    const mergedBranch = employeeBody.branch ?? previous.branch;
+    const setup = await activeDepartmentReportingSetup(mergedDepartmentId, mergedBranch);
+    const updateData = setup && (employeeBody.departmentId || employeeBody.branch)
+      ? applyReportingSetup(employeeBody as typeof employeeBody & { departmentId: string }, setup)
+      : employeeBody;
+    const employee = await prisma.$transaction(async (tx) => {
+      const updatedEmployee = await tx.employee.update({ where: { id }, data: updateData, include: { department: true, manager: true, documents: true, user: true } });
+      if (role || portalStatus) {
+        const email = updatedEmployee.companyEmail || updatedEmployee.email;
+        await tx.user.upsert({
+          where: { employeeId: id },
+          update: {
+            ...(role ? { role } : {}),
+            ...(portalStatus ? { portalStatus } : {})
+          },
+          create: {
+            email,
+            role: role ?? Role.EMPLOYEE,
+            employeeId: id,
+            portalStatus: portalStatus ?? "PENDING_FIRST_LOGIN",
+            passwordHash: await bcrypt.hash(updatedEmployee.employeeCode, env.BCRYPT_ROUNDS),
+            firstLoginRequired: true,
+            passwordResetRequired: false,
+            forcePasswordChange: true
+          }
+        });
+      }
+      return tx.employee.findUniqueOrThrow({ where: { id }, include: { department: true, manager: true, documents: true, user: true } });
+    });
+    await audit(req, "UPDATE", "Employee", id, { fields: Object.keys(updateData), role, portalStatus, reason: changeReason, overrideFields: changedOverrideFields }, previous, employee);
     res.json(employee);
   } catch (error) {
     next(error);
@@ -468,10 +674,10 @@ router.patch("/:id/user-role", requireRoles(Role.SUPER_ADMIN, Role.ADMIN, Role.H
         email,
         role: body.role,
         employeeId: id,
-        portalStatus: body.portalStatus ?? (body.role === Role.EMPLOYEE ? "PENDING_FIRST_LOGIN" : "ACTIVE"),
-        passwordHash: await bcrypt.hash(body.password ?? crypto.randomUUID(), env.BCRYPT_ROUNDS),
+        portalStatus: body.portalStatus ?? "PENDING_FIRST_LOGIN",
+        passwordHash: await bcrypt.hash(body.password ?? employee.employeeCode, env.BCRYPT_ROUNDS),
         firstLoginRequired: true,
-        passwordResetRequired: Boolean(body.password),
+        passwordResetRequired: false,
         forcePasswordChange: true
       }
     });
@@ -483,17 +689,97 @@ router.patch("/:id/user-role", requireRoles(Role.SUPER_ADMIN, Role.ADMIN, Role.H
   }
 });
 
-router.delete("/:id", requireRoles(Role.SUPER_ADMIN, Role.ADMIN, Role.HR_MANAGER), async (req, res, next) => {
+router.patch("/:id/restore", requireRoles(Role.SUPER_ADMIN, Role.ADMIN, Role.HR_MANAGER), async (req, res, next) => {
   try {
     const id = String(req.params.id);
     const previous = await prisma.employee.findUnique({ where: { id } });
     if (!previous) return res.status(404).json({ message: "Employee not found" });
     const employee = await prisma.employee.update({
       where: { id },
-      data: { archivedAt: new Date(), status: "ARCHIVED" }
+      data: {
+        archivedAt: null,
+        archivedBy: null,
+        isActive: true,
+        status: EmploymentStatus.ACTIVE
+      },
+      include: { department: true, manager: true, documents: true, user: true }
     });
-    await audit(req, "ARCHIVE", "Employee", id, undefined, previous, employee);
-    res.json(employee);
+    await audit(req, "RESTORE", "Employee", id, { employeeCode: previous.employeeCode, statusBefore: previous.status, statusAfter: employee.status }, previous, employee);
+    res.json({ message: "Employee restored successfully.", employee });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.delete("/:id", requireRoles(Role.SUPER_ADMIN, Role.ADMIN, Role.HR_MANAGER), async (req, res, next) => {
+  try {
+    const id = String(req.params.id);
+    const permanent = String(req.query.permanent ?? "false") === "true";
+    const previous = await prisma.employee.findUnique({ where: { id }, include: { user: true } });
+    if (!previous) return res.status(404).json({ message: "Employee not found" });
+
+    const dependencies = await employeeDependencySummary(id);
+
+    if (permanent) {
+      if (req.user?.role !== Role.SUPER_ADMIN) {
+        return res.status(403).json({ message: "You do not have permission to delete this record." });
+      }
+      if (dependencies.total > 0) {
+        const employee = await prisma.employee.update({
+          where: { id },
+          data: {
+            archivedAt: previous.archivedAt ?? new Date(),
+            archivedBy: req.user?.id,
+            isActive: false,
+            status: EmploymentStatus.ARCHIVED
+          },
+          include: { department: true, manager: true, documents: true, user: true }
+        });
+        await audit(req, "ARCHIVE_INSTEAD_OF_DELETE", "Employee", id, { employeeCode: previous.employeeCode, dependencies: dependencies.related }, previous, employee);
+        return res.status(409).json({
+          message: "Employee cannot be deleted because related records exist. Employee has been archived instead.",
+          archived: true,
+          dependencies: dependencies.related,
+          employee
+        });
+      }
+
+      await audit(req, "DELETE_PERMANENT", "Employee", id, { employeeCode: previous.employeeCode }, previous, undefined);
+      await prisma.$transaction(async (tx) => {
+        if (previous.user) {
+          await tx.user.delete({ where: { id: previous.user.id } });
+        }
+        await tx.employee.update({
+          where: { id },
+          data: {
+            deletedAt: new Date(),
+            deletedBy: req.user?.id,
+            isActive: false,
+            status: EmploymentStatus.ARCHIVED
+          }
+        });
+        await tx.employee.delete({ where: { id } });
+      });
+      return res.json({ message: "Employee permanently deleted.", deleted: true, employeeId: id });
+    }
+
+    const employee = await prisma.employee.update({
+      where: { id },
+      data: {
+        archivedAt: previous.archivedAt ?? new Date(),
+        archivedBy: req.user?.id,
+        isActive: false,
+        status: EmploymentStatus.ARCHIVED
+      },
+      include: { department: true, manager: true, documents: true, user: true }
+    });
+    await audit(req, "ARCHIVE", "Employee", id, { employeeCode: previous.employeeCode, dependencies: dependencies.related }, previous, employee);
+    res.json({
+      message: dependencies.total > 0 ? "Employee cannot be deleted because related records exist. Employee has been archived instead." : "Employee archived successfully.",
+      archived: true,
+      dependencies: dependencies.related,
+      employee
+    });
   } catch (error) {
     next(error);
   }

@@ -52,6 +52,7 @@ export default async function VacationBalancePage({ searchParams }: { searchPara
                 <td>{new Date(balance.updatedAt).toLocaleDateString()}</td>
               </tr>
             ))}
+            {balances.length === 0 ? <tr><td colSpan={12}>No vacation balance defined yet.</td></tr> : null}
           </tbody>
         </table>
       </div>

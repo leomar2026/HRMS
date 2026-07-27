@@ -9,6 +9,7 @@ export function LoginForm({ branding }: { branding: PublicBranding }) {
   const router = useRouter();
   const params = useSearchParams();
   const [error, setError] = useState("");
+  const [showErrorPopup, setShowErrorPopup] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [language, setLanguage] = useState<"en" | "ar">("en");
   const companyName = branding.companyName || "Company HR Portal";
@@ -16,6 +17,7 @@ export function LoginForm({ branding }: { branding: PublicBranding }) {
 
   async function onSubmit(formData: FormData) {
     setError("");
+    setShowErrorPopup(false);
     const response = await fetch("/api/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -28,14 +30,17 @@ export function LoginForm({ branding }: { branding: PublicBranding }) {
 
     const data = await response.json();
     if (!response.ok) {
-      setError(response.status === 423 ? "Account is temporarily locked after repeated failed attempts." : data.message ?? "Invalid email or password.");
+      setError(response.status === 423 ? "Account is temporarily locked after repeated failed attempts." : data.message ?? "Invalid Employee ID or password.");
+      setShowErrorPopup(true);
       return;
     }
 
     const returnTo = params.get("returnTo");
     const safeReturnTo = returnTo?.startsWith("/") && !returnTo.startsWith("//") ? returnTo : "";
     const isMobile = window.matchMedia("(max-width: 760px)").matches;
-    const redirectTo = safeReturnTo || (isMobile && data.user?.role === "EMPLOYEE" ? "/employee/mobile-attendance" : data.redirectTo ?? "/dashboard");
+    const redirectTo = data.forcePasswordChange
+      ? data.redirectTo ?? "/change-password"
+      : safeReturnTo || (isMobile && data.user?.role === "EMPLOYEE" ? "/employee/mobile-attendance" : data.redirectTo ?? "/dashboard");
     router.push(redirectTo);
     router.refresh();
   }
@@ -81,6 +86,15 @@ export function LoginForm({ branding }: { branding: PublicBranding }) {
         </div>
         {error ? <p className="status danger">{error}</p> : null}
       </div>
+      {showErrorPopup ? (
+        <div className="login-error-popup" role="alertdialog" aria-modal="true" aria-labelledby="login-error-title">
+          <div className="login-error-card">
+            <h2 id="login-error-title">Login Failed</h2>
+            <p>{error}</p>
+            <button className="button" type="button" onClick={() => setShowErrorPopup(false)}>OK</button>
+          </div>
+        </div>
+      ) : null}
     </form>
   );
 }

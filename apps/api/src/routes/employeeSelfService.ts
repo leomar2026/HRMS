@@ -75,7 +75,7 @@ router.get("/me/dashboard", async (req, res, next) => {
     const employeeId = requireEmployeeId(req.user?.employeeId);
     const employee = await prisma.employee.findUnique({
       where: { id: employeeId },
-      include: { department: true, manager: true, documents: { where: { archivedAt: null }, orderBy: { expiryDate: "asc" }, take: 5 } }
+      include: { department: true, manager: true, departmentHead: true, operationsManager: true, hrManager: true, alternateManager: true, documents: { where: { archivedAt: null }, orderBy: { expiryDate: "asc" }, take: 5 } }
     });
     if (!employee) throw new AppError(404, "Employee profile not found");
 
@@ -118,7 +118,7 @@ router.get("/me", async (req, res, next) => {
     const employeeId = requireEmployeeId(req.user?.employeeId);
     const employee = await prisma.employee.findUnique({
       where: { id: employeeId },
-      include: { department: true }
+      include: { department: true, manager: true, departmentHead: true, operationsManager: true, hrManager: true, alternateManager: true }
     });
     if (!employee) throw new AppError(404, "Employee profile not found");
 
@@ -266,7 +266,7 @@ router.post("/me/leaves", async (req, res, next) => {
     if (body.endDate < body.startDate) throw new AppError(400, "End date must be on or after start date");
 
     const days = daysBetween(body.startDate, body.endDate);
-    const employee = await prisma.employee.findUnique({ where: { id: employeeId }, include: { manager: true, department: true } });
+    const employee = await prisma.employee.findUnique({ where: { id: employeeId }, include: { manager: true, department: true, operationsManager: { include: { user: true } }, hrManager: { include: { user: true } } } });
     if (!employee) throw new AppError(404, "Employee profile not found");
     if (body.type !== LeaveType.UNPAID && employee.leaveBalance < days) throw new AppError(400, "Insufficient leave balance");
     let reliever: Prisma.EmployeeGetPayload<{ include: { department: true; manager: true } }> | null = null;
@@ -306,6 +306,8 @@ router.post("/me/leaves", async (req, res, next) => {
           requestNumber: await generateDocumentNumber("LEAVE_REQUEST", tx),
           employeeId,
           managerId: employee.managerId,
+          omApproverId: employee.omId,
+          hrApproverId: employee.hrManagerId,
           type: body.type,
           startDate: body.startDate,
           endDate: body.endDate,
@@ -387,8 +389,8 @@ router.post("/me/leaves", async (req, res, next) => {
           ]
         });
       } else if (initialStep?.role === "OPERATIONS_MANAGER") {
-        const omUsers = await findOmUsers(tx, employee.departmentId);
-        await tx.leaveRequest.update({ where: { id: created.id }, data: { omApproverId: omUsers[0]?.employeeId } });
+        const omUsers = employee.operationsManager?.user ? [employee.operationsManager.user] : await findOmUsers(tx, employee.departmentId);
+        await tx.leaveRequest.update({ where: { id: created.id }, data: { omApproverId: employee.omId ?? omUsers[0]?.employeeId } });
         await notifyLeaveAction(tx, {
           leave: { ...created, employee },
           action: "PENDING_OM",
@@ -405,8 +407,8 @@ router.post("/me/leaves", async (req, res, next) => {
           }))
         });
       } else if (initialStep?.role === "HR_MANAGER") {
-        const hrUsers = await findHrManagerUsers(tx);
-        await tx.leaveRequest.update({ where: { id: created.id }, data: { hrApproverId: hrUsers[0]?.employeeId } });
+        const hrUsers = employee.hrManager?.user ? [employee.hrManager.user] : await findHrManagerUsers(tx);
+        await tx.leaveRequest.update({ where: { id: created.id }, data: { hrApproverId: employee.hrManagerId ?? hrUsers[0]?.employeeId } });
         await notifyLeaveAction(tx, {
           leave: { ...created, employee },
           action: "PENDING_HR_MANAGER",

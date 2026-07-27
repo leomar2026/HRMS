@@ -9,6 +9,7 @@ declare global {
         role: Role;
         employeeId?: string | null;
         sessionId?: string;
+        passwordChangeRequired?: boolean;
       };
     }
   }

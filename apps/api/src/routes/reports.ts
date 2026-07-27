@@ -57,7 +57,12 @@ type ReportBase =
   | "loans"
   | "tickets"
   | "government"
-  | "master-data";
+  | "master-data"
+  | "employee-mapping-audit"
+  | "department-reporting"
+  | "employee-reporting"
+  | "reporting-change-history"
+  | "workflow-approver-mapping";
 
 const reportDefinitions: ReportDefinition[] = [
   { id: "employee-master", title: "Employee Master Report", category: "Employee Reports", description: "All employees with department, branch, job, and reporting manager.", base: "employee-master" },
@@ -70,6 +75,11 @@ const reportDefinitions: ReportDefinition[] = [
   { id: "iqama-expiry", title: "Iqama Expiry Report", category: "Employee Reports", description: "Employees with iqama expiry dates.", base: "employee-master" },
   { id: "passport-expiry", title: "Passport Expiry Report", category: "Employee Reports", description: "Employees with passport expiry dates.", base: "employee-master" },
   { id: "employee-salary", title: "Employee Salary Report", category: "Employee Reports", description: "Salary and allowance report for authorized roles.", base: "employee-master", sensitive: true, allowedRoles: sensitiveRoles },
+  { id: "employee-reporting-head", title: "Employee Reporting Head Report", category: "Employee Reports", description: "Employee reporting manager, department head, OM, and HR manager assignments.", base: "employee-reporting" },
+  { id: "employees-without-reporting-manager", title: "Employees Without Reporting Manager Report", category: "Employee Reports", description: "Active employees missing a reporting manager.", base: "employee-reporting" },
+  { id: "reporting-manager-employee-list", title: "Reporting Manager Employee List", category: "Employee Reports", description: "Employees grouped by reporting manager.", base: "employee-reporting" },
+  { id: "department-head-assignment", title: "Department Head Assignment Report", category: "Employee Reports", description: "Department head assignments by employee.", base: "employee-reporting" },
+  { id: "om-assignment", title: "OM Assignment Report", category: "Employee Reports", description: "OM assignment by employee and department.", base: "employee-reporting" },
 
   { id: "leave-requests", title: "Leave Request Report", category: "Leave & Vacation Reports", description: "Leave requests with workflow status and current approver.", base: "leave-requests" },
   { id: "approved-leaves", title: "Approved Leave Report", category: "Leave & Vacation Reports", description: "Approved leave requests.", base: "leave-requests" },
@@ -100,8 +110,12 @@ const reportDefinitions: ReportDefinition[] = [
   { id: "resignation-report", title: "Resignation Request Report", category: "Resignation & Exit Reports", description: "Resignation, exit clearance, and final settlement status.", base: "resignations" },
   { id: "government-integration-log", title: "Government Integration Log Report", category: "Government Reports", description: "GOSI, Mudad, and Qiwa connector log status.", base: "government", allowedRoles: sensitiveRoles },
   { id: "master-data", title: "Master Data Report", category: "Master Data Reports", description: "Company, department, branch, and master records.", base: "master-data" },
+  { id: "department-reporting-setup", title: "Department Reporting Setup Report", category: "Master Data Reports", description: "Active and historical department reporting setup.", base: "department-reporting" },
   { id: "pending-approvals", title: "Pending Approval Report", category: "Workflow & Approval Reports", description: "All requests waiting for approval.", base: "pending-approvals" },
+  { id: "workflow-approver-mapping", title: "Workflow Approver Mapping Report", category: "Workflow & Approval Reports", description: "Workflow records and assigned manager, OM, and HR approvers.", base: "workflow-approver-mapping" },
   { id: "audit-log", title: "Audit Log Report", category: "Audit & Security Reports", description: "System audit trail for create, edit, approve, export, and print.", base: "audit-log", allowedRoles: auditRoles },
+  { id: "reporting-structure-change-history", title: "Reporting Structure Change History", category: "Audit & Security Reports", description: "Audit history for department and employee reporting changes.", base: "reporting-change-history", allowedRoles: auditRoles },
+  { id: "employee-mapping-audit", title: "Employee Mapping Audit Report", category: "Audit & Security Reports", description: "Employee-linked records with missing or invalid employee mappings.", base: "employee-mapping-audit", allowedRoles: auditRoles },
   { id: "export-history", title: "Export History Report", category: "Audit & Security Reports", description: "Report and module export audit history.", base: "audit-log", allowedRoles: auditRoles },
   { id: "print-history", title: "Print History Report", category: "Audit & Security Reports", description: "Print and PDF download audit history.", base: "audit-log", allowedRoles: auditRoles }
 ];
@@ -282,6 +296,98 @@ async function buildEmployeeReport(req: Request, definition: ReportDefinition) {
     otherAllowance: money(employee.otherAllowance)
   }));
   return { columns, rows, summary: { totalEmployees: rows.length } };
+}
+
+async function buildEmployeeReportingReport(req: Request, definition: ReportDefinition) {
+  const where = baseEmployeeWhere(req);
+  if (definition.id === "employees-without-reporting-manager") where.managerId = null;
+  const employees = await prisma.employee.findMany({
+    where,
+    include: { department: true, manager: true, departmentHead: true, operationsManager: true, hrManager: true, alternateManager: true },
+    orderBy: [{ managerId: "asc" }, { employeeCode: "asc" }],
+    take: 5000
+  });
+  const columns: ReportColumn[] = [
+    { key: "employeeId", label: "Employee ID" },
+    { key: "employeeName", label: "Employee Name" },
+    { key: "department", label: "Department" },
+    { key: "branch", label: "Branch" },
+    { key: "designation", label: "Designation" },
+    { key: "reportingManager", label: "Current Reporting Manager" },
+    { key: "departmentHead", label: "Department Head" },
+    { key: "om", label: "OM" },
+    { key: "hrManager", label: "HR Manager" },
+    { key: "backupManager", label: "Backup Manager" },
+    { key: "status", label: "Status" },
+    { key: "actionRequired", label: "Action Required" }
+  ];
+  const rows = employees
+    .filter((employee) => {
+      if (definition.id === "department-head-assignment") return Boolean(employee.departmentHeadId);
+      if (definition.id === "om-assignment") return Boolean(employee.omId);
+      return true;
+    })
+    .map((employee) => ({
+      employeeId: employee.employeeCode,
+      employeeName: employeeName(employee),
+      department: employee.department.name,
+      branch: employee.branch ?? "",
+      designation: employee.jobTitle,
+      reportingManager: employee.manager ? employeeName(employee.manager) : "",
+      departmentHead: employee.departmentHead ? employeeName(employee.departmentHead) : "",
+      om: employee.operationsManager ? employeeName(employee.operationsManager) : "",
+      hrManager: employee.hrManager ? employeeName(employee.hrManager) : "",
+      backupManager: employee.alternateManager ? employeeName(employee.alternateManager) : "",
+      status: employee.status,
+      actionRequired: employee.managerId ? "" : "Assign reporting manager"
+    }));
+  return { columns, rows, summary: { totalEmployees: rows.length, missingReportingManager: rows.filter((row) => !row.reportingManager).length } };
+}
+
+async function buildDepartmentReportingReport() {
+  const setups = await prisma.departmentReportingSetup.findMany({
+    include: {
+      department: true,
+      departmentHead: true,
+      reportingManager: true,
+      operationsManager: true,
+      hrManager: true,
+      backupManager: true
+    },
+    orderBy: [{ department: { code: "asc" } }, { effectiveStartDate: "desc" }],
+    take: 5000
+  });
+  const columns: ReportColumn[] = [
+    { key: "company", label: "Company" },
+    { key: "branch", label: "Branch" },
+    { key: "departmentCode", label: "Department Code" },
+    { key: "department", label: "Department" },
+    { key: "departmentHead", label: "Department Head" },
+    { key: "reportingManager", label: "Reporting Manager" },
+    { key: "om", label: "OM" },
+    { key: "hrManager", label: "HR Manager" },
+    { key: "backupManager", label: "Backup Manager" },
+    { key: "effectiveStartDate", label: "Effective Start Date" },
+    { key: "effectiveEndDate", label: "Effective End Date" },
+    { key: "status", label: "Status" },
+    { key: "remarks", label: "Remarks" }
+  ];
+  const rows = setups.map((setup) => ({
+    company: setup.company ?? "",
+    branch: setup.branch ?? "",
+    departmentCode: setup.department.code,
+    department: setup.department.name,
+    departmentHead: setup.departmentHead ? employeeName(setup.departmentHead) : "",
+    reportingManager: setup.reportingManager ? employeeName(setup.reportingManager) : "",
+    om: setup.operationsManager ? employeeName(setup.operationsManager) : "",
+    hrManager: setup.hrManager ? employeeName(setup.hrManager) : "",
+    backupManager: setup.backupManager ? employeeName(setup.backupManager) : "",
+    effectiveStartDate: formatDate(setup.effectiveStartDate),
+    effectiveEndDate: formatDate(setup.effectiveEndDate),
+    status: setup.status,
+    remarks: setup.remarks ?? ""
+  }));
+  return { columns, rows, summary: { totalSetups: rows.length, activeSetups: rows.filter((row) => row.status === "ACTIVE").length } };
 }
 
 async function buildLeaveBalanceReport(req: Request) {
@@ -797,6 +903,140 @@ async function buildAuditReport(req: Request, definition: ReportDefinition) {
   return { columns, rows, summary: { totalLogs: rows.length } };
 }
 
+async function buildEmployeeMappingAuditReport() {
+  const employees = await prisma.employee.findMany({ select: { id: true, employeeCode: true, firstName: true, lastName: true } });
+  const employeeMap = new Map(employees.map((employee) => [employee.id, employee]));
+  const columns: ReportColumn[] = [
+    { key: "moduleName", label: "Module Name" },
+    { key: "recordNumber", label: "Record Number" },
+    { key: "employeeId", label: "Employee ID in Record" },
+    { key: "employeeName", label: "Employee Name if matched" },
+    { key: "mappingStatus", label: "Mapping Status" },
+    { key: "createdDate", label: "Created Date" },
+    { key: "actions", label: "Actions" }
+  ];
+  const rows: ReportRow[] = [];
+  const addRow = (moduleName: string, recordNumber: string | null | undefined, employeeId: string | null | undefined, createdAt: Date | string | null | undefined) => {
+    const employee = employeeId ? employeeMap.get(employeeId) : undefined;
+    rows.push({
+      moduleName,
+      recordNumber: recordNumber ?? "",
+      employeeId: employeeId ?? "",
+      employeeName: employee ? `${employee.employeeCode} - ${employee.firstName} ${employee.lastName}` : "",
+      mappingStatus: !employeeId ? "Missing Employee ID" : employee ? "Valid" : "Employee Not Found",
+      createdDate: createdAt instanceof Date ? createdAt.toISOString() : String(createdAt ?? ""),
+      actions: employeeId && employee ? "View" : "Reassign Employee / Mark as Orphan / Hide from Employee Profile"
+    });
+  };
+
+  const [attachments, loans, trips, pettyCash, tickets, resignations, leaveBalances, payrollItems] = await Promise.all([
+    prisma.attachment.findMany({ where: { archivedAt: null }, select: { relatedModule: true, relatedRecordNumber: true, employeeId: true, createdAt: true }, take: 5000 }),
+    prisma.employeeLoanRequest.findMany({ where: { archivedAt: null }, select: { requestNumber: true, employeeId: true, createdAt: true }, take: 5000 }),
+    prisma.businessTripRequest.findMany({ where: { archivedAt: null }, select: { requestNumber: true, employeeId: true, createdAt: true }, take: 5000 }),
+    prisma.pettyCashRequest.findMany({ where: { archivedAt: null }, select: { requestNumber: true, employeeId: true, createdAt: true }, take: 5000 }),
+    prisma.ticketRequest.findMany({ where: { archivedAt: null }, select: { requestNumber: true, employeeId: true, createdAt: true }, take: 5000 }),
+    prisma.resignationRequest.findMany({ where: { archivedAt: null }, select: { requestNumber: true, employeeId: true, createdAt: true }, take: 5000 }),
+    prisma.leaveBalanceUploadItem.findMany({ select: { employeeCode: true, employeeId: true, createdAt: true }, take: 5000 }),
+    prisma.payrollUploadItem.findMany({ select: { documentReference: true, employeeId: true, createdAt: true }, take: 5000 })
+  ]);
+
+  attachments.forEach((row) => addRow(`Attachment - ${row.relatedModule}`, row.relatedRecordNumber, row.employeeId, row.createdAt));
+  loans.forEach((row) => addRow("Loans / Salary Advance", row.requestNumber, row.employeeId, row.createdAt));
+  trips.forEach((row) => addRow("Business Trip", row.requestNumber, row.employeeId, row.createdAt));
+  pettyCash.forEach((row) => addRow("Petty Cash / Cash Advance", row.requestNumber, row.employeeId, row.createdAt));
+  tickets.forEach((row) => addRow("Ticket Request", row.requestNumber, row.employeeId, row.createdAt));
+  resignations.forEach((row) => addRow("Resignation", row.requestNumber, row.employeeId, row.createdAt));
+  leaveBalances.forEach((row) => addRow("Vacation Balance", row.employeeCode, row.employeeId, row.createdAt));
+  payrollItems.forEach((row) => addRow("Payslip / Payroll Upload", row.documentReference, row.employeeId, row.createdAt));
+
+  return {
+    columns,
+    rows,
+    summary: {
+      totalRecords: rows.length,
+      valid: rows.filter((row) => row.mappingStatus === "Valid").length,
+      missingEmployeeId: rows.filter((row) => row.mappingStatus === "Missing Employee ID").length,
+      employeeNotFound: rows.filter((row) => row.mappingStatus === "Employee Not Found").length
+    }
+  };
+}
+
+async function buildReportingChangeHistoryReport(req: Request) {
+  const auditLogs = await prisma.auditLog.findMany({
+    where: {
+      OR: [
+        { entity: "DepartmentReportingSetup" },
+        { entity: "Department" },
+        { entity: "Employee" }
+      ],
+      action: { in: ["CREATE", "UPDATE", "BULK_ASSIGN", "ADMIN_OVERRIDE", "WORKFLOW_APPROVER_RECALCULATED"] }
+    },
+    orderBy: { createdAt: "desc" },
+    take: 5000
+  });
+  const columns: ReportColumn[] = [
+    { key: "dateTime", label: "Date/Time" },
+    { key: "user", label: "User" },
+    { key: "role", label: "Role" },
+    { key: "module", label: "Module" },
+    { key: "recordId", label: "Employee ID or Department Code" },
+    { key: "action", label: "Action" },
+    { key: "previousValue", label: "Previous Values" },
+    { key: "newValue", label: "New Values" },
+    { key: "reason", label: "Reason" }
+  ];
+  const rows = auditLogs.map((log) => ({
+    dateTime: log.createdAt.toISOString(),
+    user: log.userId ?? "System",
+    role: req.user?.role ?? "",
+    module: log.entity,
+    recordId: log.entityId ?? "",
+    action: log.action,
+    previousValue: JSON.stringify(log.previousValue ?? {}),
+    newValue: JSON.stringify(log.newValue ?? log.metadata ?? {}),
+    reason: typeof log.metadata === "object" && log.metadata && "reason" in log.metadata ? String((log.metadata as Record<string, unknown>).reason ?? "") : ""
+  }));
+  return { columns, rows, summary: { totalChanges: rows.length } };
+}
+
+async function buildWorkflowApproverMappingReport() {
+  const leaves = await prisma.leaveRequest.findMany({
+    include: {
+      employee: { include: { department: true, manager: true, operationsManager: true, hrManager: true } },
+      manager: true
+    },
+    orderBy: { createdAt: "desc" },
+    take: 5000
+  });
+  const columns: ReportColumn[] = [
+    { key: "requestNo", label: "Request No." },
+    { key: "process", label: "Process" },
+    { key: "employeeId", label: "Employee ID" },
+    { key: "employeeName", label: "Employee Name" },
+    { key: "department", label: "Department" },
+    { key: "firstApprover", label: "First Approver" },
+    { key: "omApprover", label: "OM Approver" },
+    { key: "hrApprover", label: "HR Manager Approver" },
+    { key: "workflowStage", label: "Workflow Stage" },
+    { key: "status", label: "Status" },
+    { key: "actionRequired", label: "Action Required" }
+  ];
+  const rows = leaves.map((leave) => ({
+    requestNo: leave.requestNumber,
+    process: "Leave Request",
+    employeeId: leave.employee.employeeCode,
+    employeeName: employeeName(leave.employee),
+    department: leave.employee.department.name,
+    firstApprover: leave.manager ? employeeName(leave.manager) : leave.employee.manager ? employeeName(leave.employee.manager) : "",
+    omApprover: leave.employee.operationsManager ? employeeName(leave.employee.operationsManager) : leave.omApproverId ?? "",
+    hrApprover: leave.employee.hrManager ? employeeName(leave.employee.hrManager) : leave.hrApproverId ?? "",
+    workflowStage: leave.workflowStage,
+    status: leave.status,
+    actionRequired: !leave.managerId && String(leave.workflowStage).includes("MANAGER") ? "Missing manager approver" : ""
+  }));
+  return { columns, rows, summary: { totalRequests: rows.length, missingApprover: rows.filter((row) => row.actionRequired).length } };
+}
+
 async function buildReport(req: Request, definition: ReportDefinition) {
   let result: { columns: ReportColumn[]; rows: ReportRow[]; summary: Record<string, unknown> };
   switch (definition.base) {
@@ -845,6 +1085,21 @@ async function buildReport(req: Request, definition: ReportDefinition) {
       break;
     case "audit-log":
       result = await buildAuditReport(req, definition);
+      break;
+    case "employee-mapping-audit":
+      result = await buildEmployeeMappingAuditReport();
+      break;
+    case "department-reporting":
+      result = await buildDepartmentReportingReport();
+      break;
+    case "employee-reporting":
+      result = await buildEmployeeReportingReport(req, definition);
+      break;
+    case "reporting-change-history":
+      result = await buildReportingChangeHistoryReport(req);
+      break;
+    case "workflow-approver-mapping":
+      result = await buildWorkflowApproverMappingReport();
       break;
   }
   const filteredRows = maskSensitiveRows(result.rows, result.columns, req);
